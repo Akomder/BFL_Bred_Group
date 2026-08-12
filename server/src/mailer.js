@@ -1,6 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
-import { config, isMailConfigured, mailTransports } from './config.js'
+import { config, mailTransports } from './config.js'
 import { withRetry } from './retry.js'
 import { internalMessage, customerMessage } from './mail/messages.js'
 import { sendViaGraph, verifyGraph } from './mail/graphSend.js'
@@ -40,21 +38,6 @@ const deliver = async ({ message, pdf, fileName, label }) => {
   throw new Error(failures.join(' | '))
 }
 
-/** Demo mode: no transport configured, so the message lands in the outbox. */
-const writeToOutbox = async ({ payload, pdf, fileName, messages }) => {
-  const dir = join(config.outbox, payload.meta.referenceNo)
-  await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, fileName), pdf)
-  for (const [name, message] of Object.entries(messages)) {
-    await writeFile(
-      join(dir, `${name}.txt`),
-      [`To: ${message.to.join(', ')}`, `Subject: ${message.subject}`, '', message.text].join('\n'),
-    )
-  }
-  console.log(`[mail] no transport configured — wrote ${dir} for ${Object.keys(messages).join(', ')}`)
-  return dir
-}
-
 /**
  * Sends the completed form.
  *
@@ -62,23 +45,15 @@ const writeToOutbox = async ({ payload, pdf, fileName, messages }) => {
  * only when the customer asked for it — their own advice, which deliberately
  * omits the Device ID, IP and consent audit line.
  *
- * Never throws. The customer has already been told to wait for the teller, so
- * an undeliverable form is spooled to disk and reported, not lost.
+ * Assumes a transport is configured — the boot preflight (preflight.js)
+ * refuses to start the service otherwise. Never throws even so: the customer
+ * has already been told to wait for the teller, so an undeliverable form is
+ * spooled to disk and reported, not lost.
  */
 export const sendSubmission = async ({ payload, pdf, fileName }) => {
   const internal = internalMessage(payload)
   const customer = payload.copyToEmail ? customerMessage(payload) : null
   const recipients = [config.mail.to, ...(customer ? [payload.copyToEmail] : [])]
-
-  if (!isMailConfigured()) {
-    const storedPath = await writeToOutbox({
-      payload,
-      pdf,
-      fileName,
-      messages: { internal, ...(customer ? { customer } : {}) },
-    })
-    return { delivered: false, spooled: false, recipients, storedPath, transport: 'outbox' }
-  }
 
   // The internal copy is the one that matters operationally.
   let delivery
@@ -116,8 +91,10 @@ export const sendSubmission = async ({ payload, pdf, fileName }) => {
 
 /**
  * Startup check, so a wrong secret shows up in the launch log rather than at
- * the counter. Never throws — a failing transport should not stop the service
- * booting, because the spool still protects the forms.
+ * the counter. Never throws itself — each transport's result is reported
+ * individually — but preflight.js treats any failure here as fatal and
+ * refuses to boot, since a form no transport can send has nowhere to go but
+ * the spool for every single submission until someone notices.
  */
 export const verifyMailConfig = async () => {
   const results = {}

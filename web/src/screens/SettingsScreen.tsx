@@ -48,9 +48,8 @@ export const SettingsScreen = ({ onClose }: { onClose: () => void }) => {
           </div>
           <div>
             <dt className="text-sm font-semibold text-muted">{t('ipAddress')}</dt>
-            <dd className="mt-1 font-mono text-base text-ink">
-              {import.meta.env.VITE_API_BASE ? '—' : t('demoMode')}
-            </dd>
+            {/* Recorded per-submission on the review screen, not shown here. */}
+            <dd className="mt-1 font-mono text-base text-ink">—</dd>
           </div>
         </dl>
       </Card>

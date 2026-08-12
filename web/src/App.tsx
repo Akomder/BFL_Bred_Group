@@ -12,11 +12,9 @@ import { useFormStore } from './state/formStore'
 import { fetchClientIp, getBranch, getDeviceId, makeReference } from './lib/device'
 import { API_BASE, submitForm, type SubmitResult } from './lib/submit'
 import type { SubmissionMeta } from './lib/types'
-import { useI18n } from './i18n/useI18n'
 
 export const App = () => {
   const { step, data, goto, reset } = useFormStore()
-  const { t } = useI18n()
   const [ip, setIp] = useState('…')
   const [asking, setAsking] = useState(false)
   const [sending, setSending] = useState(false)
@@ -96,11 +94,6 @@ export const App = () => {
 
   return (
     <AppShell step={step} onLogoClick={step === 'start' ? undefined : () => goto('start', null)}>
-      {!API_BASE && step === 'start' && (
-        <p className="mb-5 rounded-xl border border-brand-200 bg-brand-100 px-4 py-3 text-center text-sm text-brand-800">
-          {t('demoMode')}
-        </p>
-      )}
       {screen()}
       <CopyRequestModal
         open={asking}

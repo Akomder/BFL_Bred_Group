@@ -1,7 +1,6 @@
 import type { FormData, SubmissionMeta } from './types'
 
 export const API_BASE: string | undefined = import.meta.env.VITE_API_BASE
-export const isDemoMode = (): boolean => !API_BASE
 
 /** Where every completed form is sent, per the operational requirement. */
 export const PRIMARY_RECIPIENT = 'it.support@bfl.la'
@@ -10,7 +9,8 @@ export interface SubmitResult {
   referenceNo: string
   pdf: Blob
   fileName: string
-  /** False when the app ran without a backend and only produced the PDF locally. */
+  /** False on the rare submission the server couldn't deliver immediately —
+   *  it was queued and will go out once mail recovers, not lost. */
   delivered: boolean
   copySentTo?: string
 }
@@ -24,8 +24,7 @@ export interface SubmitOptions {
 
 /**
  * Renders the PDF and hands it to the backend, which owns the email to
- * it.support@bfl.la and the SharePoint archive. With no backend configured the
- * PDF is still produced so the flow can be demonstrated end to end.
+ * it.support@bfl.la and the SharePoint archive.
  */
 export const submitForm = async ({ data, meta, copyToEmail }: SubmitOptions): Promise<SubmitResult> => {
   // pdf-lib and fontkit are only needed on the last step, so they stay out of
@@ -38,7 +37,9 @@ export const submitForm = async ({ data, meta, copyToEmail }: SubmitOptions): Pr
   const fileName = pdfFileName(meta, data.kind)
 
   if (!API_BASE) {
-    return { referenceNo: meta.referenceNo, pdf, fileName, delivered: false, copySentTo: copyToEmail }
+    // A missing VITE_API_BASE is a deployment mistake, not a supported mode —
+    // surfaces through the same error path a real network failure would.
+    throw new Error('No server configured (VITE_API_BASE is not set).')
   }
 
   const body = new FormData()
@@ -69,13 +70,15 @@ export const submitForm = async ({ data, meta, copyToEmail }: SubmitOptions): Pr
 
   const res = await fetch(`${API_BASE}/api/submissions`, { method: 'POST', body })
   if (!res.ok) throw new Error(`Submission failed (${res.status})`)
-  const result = (await res.json()) as { referenceNo?: string }
+  const result = (await res.json()) as { referenceNo?: string; delivered?: boolean }
 
   return {
     referenceNo: result.referenceNo ?? meta.referenceNo,
     pdf,
     fileName,
-    delivered: true,
+    // The server already retried and, failing that, queued the form rather
+    // than losing it — `delivered: false` here means "queued", never "lost".
+    delivered: result.delivered ?? true,
     copySentTo: copyToEmail,
   }
 }

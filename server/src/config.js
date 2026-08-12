@@ -57,8 +57,22 @@ export const config = {
     folder: process.env.SP_FOLDER ?? 'CashForms',
   },
 
-  /** Where the local adapters write when SMTP/SharePoint are not configured,
-   *  and where undeliverable forms are spooled so none is ever lost. */
+  /** Optional transaction ledger — a bonus on top of the PDF archive and the
+   *  audit email, not a replacement for either. See sheets.js. */
+  sheets: {
+    clientEmail: process.env.GOOGLE_SHEETS_CLIENT_EMAIL,
+    /** Service-account keys are usually pasted into .env with literal \n
+     *  sequences rather than real newlines — unescaped here, the one place
+     *  that shapes raw env strings into what the code actually needs. */
+    privateKey: process.env.GOOGLE_SHEETS_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+    spreadsheetId: process.env.GOOGLE_SHEETS_SPREADSHEET_ID,
+    tab: process.env.GOOGLE_SHEETS_TAB ?? 'Transactions',
+    timeoutMs: Number(process.env.GOOGLE_SHEETS_TIMEOUT_MS ?? 15000),
+  },
+
+  /** Where undeliverable forms are spooled — see spool.js — so a submission
+   *  is never lost if mail or the archive is briefly down. Nothing else
+   *  writes here: production requires real mail and SharePoint config. */
   outbox: process.env.OUTBOX_DIR ?? 'outbox',
 }
 
@@ -90,3 +104,33 @@ export const isSharePointConfigured = () =>
       config.sharepoint.clientSecret &&
       config.sharepoint.driveId,
   )
+
+export const isSheetsConfigured = () =>
+  Boolean(config.sheets.clientEmail && config.sheets.privateKey && config.sheets.spreadsheetId)
+
+/**
+ * What's missing before this can run as a real branch service, in plain
+ * language. Empty means the service is ready to boot. Pure — reads the
+ * already-computed `config` object, so tests can exercise it by mutating
+ * `config` directly rather than re-importing with different env vars.
+ */
+export const configProblems = () => {
+  const problems = []
+
+  if (!isMailConfigured()) {
+    problems.push(
+      'No mail transport configured. Set MAIL_GRAPH_TENANT_ID/CLIENT_ID/CLIENT_SECRET ' +
+        '(or reuse the SharePoint ones below) for Microsoft Graph, and/or SMTP_HOST for an ' +
+        'SMTP relay. See server/.env.example.',
+    )
+  }
+
+  if (!isSharePointConfigured()) {
+    problems.push(
+      'SharePoint archive not configured. Set SP_TENANT_ID, SP_CLIENT_ID, SP_CLIENT_SECRET ' +
+        'and SP_DRIVE_ID. See server/.env.example.',
+    )
+  }
+
+  return problems
+}

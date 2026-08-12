@@ -100,7 +100,9 @@ export const dictionary = {
     branch: 'Branch',
     save: 'Save',
     saved: 'Saved',
-    demoMode: 'Demo mode — no backend configured. The PDF is generated on this device.',
+    /** Shown instead of "sent to it.support@bfl.la" on the rare submission
+     *  that couldn't be delivered immediately and was queued for retry. */
+    pendingDelivery: 'Queued — will be sent as soon as the connection is back.',
   },
   lo: {
     appTitle: 'ຝາກເງິນສົດ / ຖອນເງິນສົດ',
@@ -196,7 +198,7 @@ export const dictionary = {
     branch: 'ສາຂາ',
     save: 'ບັນທຶກ',
     saved: 'ບັນທຶກແລ້ວ',
-    demoMode: 'ໂໝດສາທິດ — ບໍ່ມີເຊີບເວີ. ໄຟລ໌ PDF ຖືກສ້າງຢູ່ໃນອຸປະກອນນີ້.',
+    pendingDelivery: 'ຄິວ — ຈະຖືກສົ່ງທັນທີທີ່ການເຊື່ອມຕໍ່ກັບຄືນມາ.',
   },
 } as const satisfies Record<Lang, Record<string, string>>
 

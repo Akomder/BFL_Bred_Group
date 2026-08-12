@@ -38,11 +38,11 @@ export const setBranch = (branch: string): void => localStorage.setItem(BRANCH_K
 export const isBranchRegistered = (): boolean => localStorage.getItem(BRANCH_KEY) !== null
 
 /**
- * The client IP is only trustworthy when the server reports it, so the app asks
- * the backend and shows a placeholder in demo mode.
+ * The client IP is only trustworthy when the server reports it, so the app
+ * asks the backend for it rather than reading it from the browser.
  */
 export const fetchClientIp = async (apiBase: string | undefined): Promise<string> => {
-  if (!apiBase) return 'Not available (demo mode)'
+  if (!apiBase) return 'Not available'
   try {
     const res = await fetch(`${apiBase}/api/client-ip`)
     if (!res.ok) throw new Error(String(res.status))

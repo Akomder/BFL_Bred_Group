@@ -34,7 +34,7 @@ export const DoneScreen = ({
           <div className="flex items-baseline justify-between gap-4">
             <dt className="font-semibold text-muted">{t('sentTo')}</dt>
             <dd className="text-right text-ink">
-              {result.delivered ? PRIMARY_RECIPIENT : t('demoMode')}
+              {result.delivered ? PRIMARY_RECIPIENT : t('pendingDelivery')}
             </dd>
           </div>
           {result.copySentTo && (

@@ -13,23 +13,27 @@ server/   submission service — Express, email + SharePoint adapters
 
 ## Running it
 
-```bash
-# 1. the app (demo mode — no backend needed)
-cd web && npm install && npm run dev        # http://localhost:5173
+Both halves need real configuration — there is no demo mode. The service refuses to start
+without working mail and SharePoint credentials (see [Configuring for
+production](#configuring-for-production)); the app refuses to submit without a service to
+submit to.
 
-# 2. optional: the submission service
+```bash
+# 1. the submission service — needs server/.env filled in first, see below
 cd server && npm install && npm start       # http://localhost:8787
+
+# 2. the app — needs web/.env.local (or .env.production) pointing at it, see below
+cd web && npm install && npm run dev        # http://localhost:5173
 ```
 
-To point the app at the service, create `web/.env.local`:
+Copy `web/.env.example` to `web/.env.local`:
 
 ```
 VITE_API_BASE=http://localhost:8787
 ```
 
-Without it the app stays in **demo mode**: the PDF is still generated in the browser and can be
-downloaded, but nothing is emailed or archived. That makes the whole flow demonstrable on a laptop
-with no credentials.
+Vite inlines this at build time, so it must be set before `npm run dev` or `npm run build` — not
+something that can be left for later.
 
 > The camera needs a secure context. `localhost` counts; on a real tablet, serve the app over HTTPS
 > or the photo step will report that the camera is unavailable (the flow continues without a photo).
@@ -81,13 +85,16 @@ and a generated Device ID are stored on the device and printed on every form. Ed
    `https://bfl-bred.com/wp-content/uploads/2022/05/BFL-BRED-Group-Logo.png` first and falls back to
    the bundled file, so a branch tablet on a restricted network still prints a logo.
 2. **Email and SharePoint** — copy `server/.env.example` to `server/.env` and fill it in. See
-   [Email delivery](#email-delivery) below. Until anything is set, the service writes into
-   `server/outbox/` and logs the recipients it would have used. Forms are filed as
+   [Email delivery](#email-delivery) below. **Both are required**: the service checks at boot
+   and refuses to start until real, working credentials for a mail transport and for
+   SharePoint are in place — see [Startup checks](#startup-checks). Forms are filed as
    `CashForms/<year>/<month>/<file>.pdf`.
 3. **Branches** — see above.
 4. **Lao wording** — the Lao strings in `web/src/i18n/dictionary.ts` and the Lao number words in
    `web/src/lib/amountInWords.ts` should be reviewed by a native speaker before go-live. The English
    wording is authoritative in the meantime; both are printed on the PDF.
+5. **Transaction ledger (optional)** — see [Transaction ledger](#transaction-ledger-google-sheets)
+   below if you want every submission logged as a row in a Google Sheet.
 
 ## Email delivery
 
@@ -100,8 +107,7 @@ Two messages go out per submission, and they are deliberately different:
   any of those leak into it.
 
 `npm start` reads `server/.env` if it is present (via Node's `--env-file-if-exists`), so no
-process manager or `dotenv` dependency is needed. With no `.env` the service runs in outbox
-mode, which is how the demo works.
+process manager or `dotenv` dependency is needed.
 
 ### Choosing a transport
 
@@ -118,13 +124,34 @@ and grant admin consent. `MAIL_FROM` must be a real licensed mailbox; Graph reje
 > [application access policy](https://learn.microsoft.com/en-us/graph/auth-limit-mailbox-access)
 > — otherwise you are granting far more than this service needs.
 
-Startup verifies whatever is configured and prints the result, so a wrong secret shows up in
-the launch log instead of at a counter:
+### Startup checks
+
+`npm start` refuses to bring the service up unless it can actually do its job. Before it
+starts listening, it checks that a mail transport (Graph and/or SMTP) and SharePoint are both
+**configured**, and then proves the credentials **work** — a Graph/SMTP login and a real
+request to the SharePoint drive, not just that the values are non-empty.
+
+Either check failing exits the process immediately with a specific reason, rather than starting
+in a broken state that only becomes visible days later as a growing spool:
 
 ```
-mail    -> graph then smtp
-verify graph -> ok
-verify smtp  -> FAILED — Invalid login: 535 authentication failed
+FATAL: production configuration is incomplete.
+
+  - SharePoint archive not configured. Set SP_TENANT_ID, SP_CLIENT_ID, SP_CLIENT_SECRET and SP_DRIVE_ID. See server/.env.example.
+```
+
+```
+FATAL: configured credentials were rejected.
+
+  - mail (smtp): FAILED — Invalid login: 535 authentication failed
+```
+
+A clean boot logs what was verified:
+
+```
+mail    -> graph then smtp (verified)
+archive -> SharePoint (verified)
+sheets  -> not configured — skipping
 ```
 
 ### When mail is down
@@ -148,6 +175,36 @@ they will fail identically and the customer is standing at the counter.
 
 The customer's own copy is best effort: they typed that address on a tablet, so a typo is
 reported in the response but never fails a deposit that has already been accepted and archived.
+
+## Transaction ledger (Google Sheets)
+
+Optional. On top of the PDF archive and the audit email, every submission can also be logged as
+one row in a Google Sheet — a fast, searchable/filterable ledger that a folder of PDFs and an
+inbox can't give you. It's additive, not a replacement for either: the PDF and the email are
+still the operational record.
+
+The row carries the same fields as the internal audit email (reference, account name and
+number, amount, source of funds, processed-by phone, branch, Device ID, IP, consent, plus the
+delivered/archived outcome) — the audit version, not the customer-facing one, so treat sharing
+access to the sheet with the same care as the IT inbox.
+
+**Setup:**
+
+1. In Google Cloud Console, create (or reuse) a project and enable the **Google Sheets API**.
+2. Create a **service account**, then a JSON key for it.
+3. Open the target spreadsheet and **share it with the service account's email as Editor** —
+   the step people forget. A service account has no access to anything just by existing.
+4. In `server/.env`, set `GOOGLE_SHEETS_CLIENT_EMAIL` and `GOOGLE_SHEETS_PRIVATE_KEY` from the
+   JSON key, and `GOOGLE_SHEETS_SPREADSHEET_ID` from the sheet's URL. `GOOGLE_SHEETS_TAB`
+   defaults to `Transactions` — create a tab with that name, or set the variable to match one
+   you already have.
+
+Unlike mail and SharePoint, this is **optional and best-effort**: if it isn't configured, the
+service starts normally and simply skips it (`sheetLogged: false, reason: 'not configured'` in
+every response). If it *is* configured, startup still verifies the spreadsheet is reachable —
+but a failure here only logs a warning, it never blocks the service from starting or a
+submission from completing. A missed ledger row is an inconvenience; the PDF archive and the
+audit email are what a lost transaction can't afford to skip, and those still fail loudly.
 
 ## Notes for whoever picks this up
 
