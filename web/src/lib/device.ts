@@ -53,10 +53,20 @@ export const fetchClientIp = async (apiBase: string | undefined): Promise<string
   }
 }
 
-/** Human-readable reference shown to the customer and used in the PDF filename. */
+/**
+ * Reference shown to the customer, filed under in the PDF/email/ledger, and
+ * used as the archived filename. No separators — one continuous token. Unique
+ * down to the second (date+time to the second) plus 6 random hex characters,
+ * so two tablets at different branches submitting in the same second still
+ * can't collide in practice: a 4-digit random suffix on date-only (the
+ * previous scheme) had a real birthday-paradox collision risk once a branch
+ * did more than a couple hundred submissions in a day.
+ */
 export const makeReference = (date = new Date()): string => {
   const pad = (n: number) => String(n).padStart(2, '0')
-  const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}`
-  const rand = Math.floor(Math.random() * 10000)
-  return `BFL-${stamp}-${String(rand).padStart(4, '0')}`
+  const stamp =
+    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}` +
+    `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  const unique = crypto.randomUUID().replace(/-/g, '').slice(0, 6).toUpperCase()
+  return `BFL${stamp}${unique}`
 }
