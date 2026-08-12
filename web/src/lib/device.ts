@@ -7,12 +7,14 @@ const BRANCH_KEY = 'bfl.branch'
  */
 export const BRANCHES = [
   'Head Office — Vientiane Capital',
-  'Lane Xang Avenue Branch — Vientiane Capital',
-  'Dongdok Branch — Vientiane Capital',
-  'Thatluang Branch — Vientiane Capital',
-  'Luang Prabang Branch',
-  'Savannakhet Branch',
+  'Mixay Branch — Vientiane Capital',
+  '103 Hospital Branch — Vientiane Capital',
+  'Itec Branch — Vientiane Capital',
+  'Wattay Branch - Vientiane Capital',
+  'Luang Prabang Branch — Luang Prabang Province',
   'Pakse Branch — Champasak',
+  'Savannakhet Branch',
+  'Vangvieng Branch — Vientiane Province',
 ]
 
 /**
