@@ -30,6 +30,8 @@ export interface SubmitOptions {
 export const submitForm = async ({ data, meta, copyToEmail }: SubmitOptions): Promise<SubmitResult> => {
   // pdf-lib and fontkit are only needed on the last step, so they stay out of
   // the initial bundle a branch tablet has to download.
+  const { amountInWordsEn } = await import('./amountInWords')
+  const { formatAmountForDisplay } = await import('./format')
   const { buildPdf, pdfFileName } = await import('./pdf')
   const bytes = await buildPdf({ data, meta })
   const pdf = new Blob([bytes as BlobPart], { type: 'application/pdf' })
@@ -49,6 +51,11 @@ export const submitForm = async ({ data, meta, copyToEmail }: SubmitOptions): Pr
       accountCurrency: data.accountCurrency,
       amount: data.amount,
       amountCurrency: data.amountCurrency,
+      /* Grouped figures and the wording are computed here so the emails can
+         quote the same values the customer signed, without the service having
+         to reimplement the currency rules. */
+      amountDisplay: formatAmountForDisplay(data.amount, data.amountCurrency),
+      amountInWords: amountInWordsEn(data.amount, data.amountCurrency),
       sourceOfFunds: data.sourceOfFunds,
       processedByPhone: data.processedByPhone,
       consent: data.confirmed,

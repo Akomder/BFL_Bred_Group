@@ -6,8 +6,9 @@
   "description": "Receives completed cash deposit/withdrawal forms, emails the PDF and archives it to SharePoint.",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "dev": "node --watch --env-file-if-exists=.env src/index.js",
+    "test": "node --test \"src/**/*.test.js\""
   },
   "dependencies": {
     "cors": "^2.8.5",

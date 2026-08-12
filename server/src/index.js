@@ -1,9 +1,16 @@
 import express from 'express'
 import cors from 'cors'
 import multer from 'multer'
-import { config, isMailConfigured, isSharePointConfigured } from './config.js'
-import { sendSubmission } from './mailer.js'
+import {
+  config,
+  isGraphMailConfigured,
+  isSharePointConfigured,
+  isSmtpConfigured,
+  mailTransports,
+} from './config.js'
+import { sendSubmission, verifyMailConfig } from './mailer.js'
 import { archiveSubmission } from './archive.js'
+import { flushSpool, listSpool, spool } from './spool.js'
 
 const app = express()
 app.set('trust proxy', true)
@@ -18,16 +25,34 @@ const clientIp = (req) => {
   return raw.split(',')[0].trim().replace(/^::ffff:/, '') || 'unknown'
 }
 
-app.get('/api/health', (_req, res) => {
+app.get('/api/health', async (_req, res) => {
   res.json({
     ok: true,
-    mail: isMailConfigured() ? 'smtp' : 'outbox',
+    mail: mailTransports().length > 0 ? mailTransports() : ['outbox'],
+    graphMail: isGraphMailConfigured(),
+    smtp: isSmtpConfigured(),
     archive: isSharePointConfigured() ? 'sharepoint' : 'outbox',
+    spoolDepth: (await listSpool()).length,
   })
 })
 
 /** The tablet asks for its own address so the form can record where it was filled. */
 app.get('/api/client-ip', (req, res) => res.json({ ip: clientIp(req) }))
+
+/** What could not be delivered, for whoever is on support. */
+app.get('/api/spool', async (_req, res) => {
+  res.json({ items: await listSpool() })
+})
+
+/** Drains the backlog once mail is working again. */
+app.post('/api/spool/flush', async (_req, res) => {
+  const results = await flushSpool(sendSubmission)
+  res.json({
+    attempted: results.length,
+    delivered: results.filter((r) => r.delivered).length,
+    results,
+  })
+})
 
 app.post(
   '/api/submissions',
@@ -48,17 +73,36 @@ app.post(
       payload.meta.ip = clientIp(req)
 
       const submission = { payload, pdf: file.buffer, fileName: file.originalname }
-      const [mail, archive] = await Promise.all([
+
+      /* Settled, not all: the customer is already waiting for the teller, so
+         one channel failing must not discard the other's work — or the form. */
+      const [mail, archive] = await Promise.allSettled([
         sendSubmission(submission),
         archiveSubmission(submission),
       ])
 
+      if (archive.status === 'rejected') {
+        console.error(`[archive] ${payload.meta.referenceNo} failed — ${archive.reason?.message}`)
+      }
+
+      /* sendSubmission spools its own failures. This covers the unexpected
+         throw, so there is no path where an accepted form leaves no trace. */
+      if (mail.status === 'rejected') {
+        console.error(`[mail] ${payload.meta.referenceNo} threw — ${mail.reason?.message}`)
+        await spool(submission, `unhandled: ${mail.reason?.message}`)
+      }
+
+      const mailResult = mail.status === 'fulfilled' ? mail.value : { delivered: false, spooled: true }
+
       res.json({
         referenceNo: payload.meta.referenceNo,
-        delivered: mail.delivered,
-        recipients: mail.recipients,
-        storedPath: archive.path,
-        archived: archive.archived,
+        delivered: mailResult.delivered,
+        transport: mailResult.transport,
+        recipients: mailResult.recipients,
+        customerCopy: mailResult.customerCopy,
+        spooled: mailResult.spooled,
+        storedPath: archive.status === 'fulfilled' ? archive.value.path : mailResult.storedPath,
+        archived: archive.status === 'fulfilled' ? archive.value.archived : false,
       })
     } catch (error) {
       console.error('[submissions] failed', error)
@@ -67,9 +111,21 @@ app.post(
   },
 )
 
-app.listen(config.port, () => {
+app.listen(config.port, async () => {
   console.log(`BFL cash form service listening on :${config.port}`)
-  console.log(`  mail    -> ${isMailConfigured() ? `SMTP ${config.mail.host}` : `outbox (${config.outbox})`}`)
+
+  const transports = mailTransports()
+  console.log(`  mail    -> ${transports.length ? transports.join(' then ') : `outbox (${config.outbox})`}`)
   console.log(`  archive -> ${isSharePointConfigured() ? 'SharePoint' : `outbox (${config.outbox})`}`)
   console.log(`  forms are always sent to ${config.mail.to}`)
+
+  // Prove the credentials now, so a bad secret surfaces here and not at a counter.
+  for (const [name, status] of Object.entries(await verifyMailConfig())) {
+    console.log(`  verify ${name} -> ${status}`)
+  }
+
+  const pending = await listSpool()
+  if (pending.length > 0) {
+    console.warn(`  ${pending.length} form(s) waiting in the spool — POST /api/spool/flush to send them`)
+  }
 })
