@@ -1,0 +1,14 @@
+node_modules/
+dist/
+build/
+
+# Local environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Local fallback output of the submission service
+server/outbox/
+
+.DS_Store
+*.log

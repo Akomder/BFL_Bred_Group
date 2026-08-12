@@ -1,0 +1,91 @@
+@import 'tailwindcss';
+
+/* The same TTFs that get embedded in the PDF, so the screen and the printed
+   document render Lao identically. Served from /public/fonts. */
+@font-face {
+  font-family: 'Noto Sans App';
+  src: url('/fonts/NotoSans-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Sans App';
+  src: url('/fonts/NotoSans-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Sans Lao App';
+  src: url('/fonts/NotoSansLao-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Noto Sans Lao App';
+  src: url('/fonts/NotoSansLao-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: swap;
+}
+
+@theme {
+  --color-brand-50: #f4faff;
+  --color-brand-100: #e3f2fb;
+  --color-brand-200: #cfe4f3;
+  --color-brand-300: #a8cfe9;
+  --color-brand-400: #2a93d5;
+  --color-brand-500: #1a83c9;
+  --color-brand-600: #1173b8;
+  --color-brand-700: #0b5fa5;
+  --color-brand-800: #084a80;
+  --color-ink: #0f2a3d;
+  --color-muted: #5a7a90;
+  --color-line: #cfe4f3;
+  --color-danger: #b3261e;
+  --color-success: #0f7b52;
+
+  --font-sans: 'Noto Sans App', 'Noto Sans Lao App', ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 18px;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-brand-50);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  /* A customer-facing counter device should never rubber-band or text-select. */
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior-y: none;
+}
+
+/* Inputs stay at 16px+ so iOS/iPadOS never zooms the form on focus. */
+input,
+textarea,
+select,
+button {
+  font-family: inherit;
+  font-size: 16px;
+}
+
+/* Keep native focus visible for keyboard users, hide the mouse-click ring. */
+:focus-visible {
+  outline: 3px solid var(--color-brand-400);
+  outline-offset: 2px;
+}
+
+@media print {
+  body {
+    background: #fff;
+  }
+}
