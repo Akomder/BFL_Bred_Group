@@ -10,10 +10,10 @@ export const BRANCHES = [
   'Mixay Branch — Vientiane Capital',
   '103 Hospital Branch — Vientiane Capital',
   'Itec Branch — Vientiane Capital',
-  'Wattay Branch - Vientiane Capital',
+  'Wattay Branch — Vientiane Capital',
   'Luang Prabang Branch — Luang Prabang Province',
-  'Pakse Branch — Champasak',
-  'Savannakhet Branch',
+  'Pakse Branch — Champasak Province',
+  'Savannakhet Branch — Savannakhet Province',
   'Vangvieng Branch — Vientiane Province',
 ]
 

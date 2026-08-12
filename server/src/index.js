@@ -3,7 +3,7 @@ import cors from 'cors'
 import multer from 'multer'
 import { config, isSheetsConfigured, mailTransports } from './config.js'
 import { sendSubmission } from './mailer.js'
-import { archiveSubmission } from './archive.js'
+import { archiveSubmission } from './drive.js'
 import { flushSpool, listSpool, spool } from './spool.js'
 import { appendTransactionRow } from './sheets.js'
 import { assertReady } from './preflight.js'
@@ -38,7 +38,7 @@ async function main() {
     res.json({
       ok: true,
       mail: mailTransports(),
-      archive: 'sharepoint',
+      archive: 'drive',
       sheets: isSheetsConfigured() ? 'configured' : 'not configured',
       spoolDepth: (await listSpool()).length,
     })
@@ -129,7 +129,7 @@ async function main() {
   app.listen(config.port, async () => {
     console.log(`BFL cash form service listening on :${config.port}`)
     console.log(`  mail    -> ${mailTransports().join(' then ')} (verified)`)
-    console.log('  archive -> SharePoint (verified)')
+    console.log('  archive -> Google Drive (verified)')
     console.log(`  sheets  -> ${verified.sheets}`)
     console.log(`  forms are always sent to ${config.mail.to}`)
 

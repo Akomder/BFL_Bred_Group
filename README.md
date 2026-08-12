@@ -3,18 +3,18 @@
 A tablet-first web app that replaces the hand-written cash deposit and cash withdrawal slips used at
 the counter. The customer fills in the form, has their photo taken, signs on screen, checks a review
 sheet, and submits. The app renders a PDF that mirrors the paper form, emails it to
-`it.support@bfl.la`, and archives a copy to SharePoint. The customer can optionally receive their own
+`it.support@bfl.la`, and archives a copy to Google Drive. The customer can optionally receive their own
 copy by email. After submitting they are told to wait for the teller to call them.
 
 ```
 web/      the tablet app  — React + TypeScript + Vite + Tailwind
-server/   submission service — Express, email + SharePoint adapters
+server/   submission service — Express, email + Google Drive/Sheets adapters
 ```
 
 ## Running it
 
 Both halves need real configuration — there is no demo mode. The service refuses to start
-without working mail and SharePoint credentials (see [Configuring for
+without working mail and Google Drive credentials (see [Configuring for
 production](#configuring-for-production)); the app refuses to submit without a service to
 submit to.
 
@@ -84,11 +84,11 @@ and a generated Device ID are stored on the device and printed on every form. Ed
 1. **Logo** — replace `web/public/logo-bfl.png` with the real asset. The app tries
    `https://bfl-bred.com/wp-content/uploads/2022/05/BFL-BRED-Group-Logo.png` first and falls back to
    the bundled file, so a branch tablet on a restricted network still prints a logo.
-2. **Email and SharePoint** — copy `server/.env.example` to `server/.env` and fill it in. See
-   [Email delivery](#email-delivery) below. **Both are required**: the service checks at boot
-   and refuses to start until real, working credentials for a mail transport and for
-   SharePoint are in place — see [Startup checks](#startup-checks). Forms are filed as
-   `CashForms/<year>/<month>/<file>.pdf`.
+2. **Email and Google Drive** — copy `server/.env.example` to `server/.env` and fill it in. See
+   [Setting up Google access](#setting-up-google-access) and [Email delivery](#email-delivery)
+   below. **Both are required**: the service checks at boot and refuses to start until real,
+   working credentials for a mail transport and for Drive are in place — see [Startup
+   checks](#startup-checks).
 3. **Branches** — see above.
 4. **Lao wording** — the Lao strings in `web/src/i18n/dictionary.ts` and the Lao number words in
    `web/src/lib/amountInWords.ts` should be reviewed by a native speaker before go-live. The English
@@ -109,27 +109,45 @@ Two messages go out per submission, and they are deliberately different:
 `npm start` reads `server/.env` if it is present (via Node's `--env-file-if-exists`), so no
 process manager or `dotenv` dependency is needed.
 
-### Choosing a transport
+Mail goes out over plain SMTP — no Microsoft dependency here. `MAIL_FROM` should match
+`SMTP_USER`; most providers (Gmail always) reject a send where the envelope sender doesn't
+match the authenticated account.
 
-`MAIL_TRANSPORT=auto` (the default) tries **Microsoft Graph** first and falls back to the
-**SMTP relay**. Graph is preferred because Microsoft 365 disables SMTP AUTH on most tenants,
-and because the app registration already needed for the SharePoint archive can carry sending
-too — so no mailbox password has to sit in `.env`.
+## Setting up Google access
 
-To enable Graph sending, add the **`Mail.Send` application permission** to that registration
-and grant admin consent. `MAIL_FROM` must be a real licensed mailbox; Graph rejects aliases.
+The archive authenticates as a real Google account via OAuth — **not** a service account.
+Service accounts have no Drive storage of their own outside a paid Workspace Shared Drive, so
+they can't upload anything to an ordinary personal Drive; this ran into that dead end before
+landing here. One authorization backs both **Drive** (the PDF archive, required) and **Sheets**
+(the optional ledger below).
 
-> `Mail.Send` as an application permission lets the app send as **any** mailbox in the tenant.
-> Restrict it to the one mailbox with an Exchange
-> [application access policy](https://learn.microsoft.com/en-us/graph/auth-limit-mailbox-access)
-> — otherwise you are granting far more than this service needs.
+1. In [Google Cloud Console](https://console.cloud.google.com), create or reuse a project, then
+   **APIs & Services → Library** → enable the **Google Drive API** (and the **Google Sheets
+   API** too, if you're using the ledger).
+2. **APIs & Services → OAuth consent screen** → configure it (External is fine for a personal
+   account) → add the Google account you'll use as a **test user**, and leave **Publishing
+   status** as **Testing**. This is what keeps the app from needing Google's verification
+   review — Testing apps skip that for up to 100 named test users, which is exactly this
+   use case.
+3. **APIs & Services → Credentials → Create Credentials → OAuth client ID** → Application type
+   **Desktop app**. Copy the **Client ID** and **Client Secret** into `server/.env` as
+   `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET`.
+4. Run `npm run google:auth` from `server/`. It prints a URL — open it, sign in with the account
+   from step 2, approve access. It fills in `GOOGLE_OAUTH_REFRESH_TOKEN` for you; the value is
+   never printed to the terminal.
+5. Pick a Drive folder you already own for the archive, and put its ID (from its URL,
+   `.../folders/THIS_PART`) in `GOOGLE_DRIVE_FOLDER_ID`. No sharing step — the app is
+   authenticating as you, so it already has whatever access you have.
+
+That's the required part. See [Transaction ledger](#transaction-ledger-google-sheets) below for
+the one extra step if you also want the Sheets ledger.
 
 ### Startup checks
 
 `npm start` refuses to bring the service up unless it can actually do its job. Before it
-starts listening, it checks that a mail transport (Graph and/or SMTP) and SharePoint are both
-**configured**, and then proves the credentials **work** — a Graph/SMTP login and a real
-request to the SharePoint drive, not just that the values are non-empty.
+starts listening, it checks that SMTP and Google Drive are both **configured**, and then proves
+the credentials **work** — an SMTP login and a real request to the Drive folder, not just that
+the values are non-empty.
 
 Either check failing exits the process immediately with a specific reason, rather than starting
 in a broken state that only becomes visible days later as a growing spool:
@@ -137,7 +155,7 @@ in a broken state that only becomes visible days later as a growing spool:
 ```
 FATAL: production configuration is incomplete.
 
-  - SharePoint archive not configured. Set SP_TENANT_ID, SP_CLIENT_ID, SP_CLIENT_SECRET and SP_DRIVE_ID. See server/.env.example.
+  - Google Drive archive not configured. Set GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET, run `npm run google:auth` to get GOOGLE_OAUTH_REFRESH_TOKEN, and set GOOGLE_DRIVE_FOLDER_ID. See server/.env.example.
 ```
 
 ```
@@ -149,16 +167,16 @@ FATAL: configured credentials were rejected.
 A clean boot logs what was verified:
 
 ```
-mail    -> graph then smtp (verified)
-archive -> SharePoint (verified)
+mail    -> smtp (verified)
+archive -> Google Drive (verified)
 sheets  -> not configured — skipping
 ```
 
 ### When mail is down
 
 A submitted form is never lost. The customer is told to wait for the teller the moment they
-submit, and the PDF only ever existed in their browser — so if every transport fails, the form
-is written to `outbox/spool/<reference>/` with a manifest and the API still returns `200` with
+submit, and the PDF only ever existed in their browser — so if delivery fails, the form is
+written to `outbox/spool/<reference>/` with a manifest and the API still returns `200` with
 `spooled: true`.
 
 ```bash
@@ -169,9 +187,9 @@ curl -X POST localhost:8787/api/spool/flush # send it once mail is back
 Delivered items move to `outbox/sent/`. `/api/health` reports the active transports and the
 current spool depth, which is the thing worth alerting on.
 
-Transient failures (SMTP 4xx, Graph 429/503, timeouts) are retried with exponential backoff and
-jitter, honouring `Retry-After`. Permanent ones (SMTP 5xx, Graph 400/401/403) are not retried —
-they will fail identically and the customer is standing at the counter.
+Transient failures (SMTP 4xx, timeouts) are retried with exponential backoff and jitter.
+Permanent ones (SMTP 5xx) are not retried — they will fail identically and the customer is
+standing at the counter.
 
 The customer's own copy is best effort: they typed that address on a tablet, so a typo is
 reported in the response but never fails a deposit that has already been accepted and archived.
@@ -188,18 +206,15 @@ number, amount, source of funds, processed-by phone, branch, Device ID, IP, cons
 delivered/archived outcome) — the audit version, not the customer-facing one, so treat sharing
 access to the sheet with the same care as the IT inbox.
 
-**Setup:**
+**Setup:** uses the same authorization as Drive above — enable the **Google Sheets API**
+alongside the Drive API in step 1 of [Setting up Google access](#setting-up-google-access), then:
 
-1. In Google Cloud Console, create (or reuse) a project and enable the **Google Sheets API**.
-2. Create a **service account**, then a JSON key for it.
-3. Open the target spreadsheet and **share it with the service account's email as Editor** —
-   the step people forget. A service account has no access to anything just by existing.
-4. In `server/.env`, set `GOOGLE_SHEETS_CLIENT_EMAIL` and `GOOGLE_SHEETS_PRIVATE_KEY` from the
-   JSON key, and `GOOGLE_SHEETS_SPREADSHEET_ID` from the sheet's URL. `GOOGLE_SHEETS_TAB`
-   defaults to `Transactions` — create a tab with that name, or set the variable to match one
-   you already have.
+1. Set `GOOGLE_SHEETS_SPREADSHEET_ID` from the sheet's URL (`.../spreadsheets/d/THIS_PART/edit`)
+   — any spreadsheet you already own, no sharing step needed. `GOOGLE_SHEETS_TAB` defaults to
+   `Transactions` — create a tab with that name, or set the variable to match one you already
+   have.
 
-Unlike mail and SharePoint, this is **optional and best-effort**: if it isn't configured, the
+Unlike mail and Drive, this is **optional and best-effort**: if it isn't configured, the
 service starts normally and simply skips it (`sheetLogged: false, reason: 'not configured'` in
 every response). If it *is* configured, startup still verifies the spreadsheet is reachable —
 but a failure here only logs a warning, it never blocks the service from starting or a

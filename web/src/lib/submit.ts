@@ -24,7 +24,7 @@ export interface SubmitOptions {
 
 /**
  * Renders the PDF and hands it to the backend, which owns the email to
- * it.support@bfl.la and the SharePoint archive.
+ * it.support@bfl.la and the Google Drive archive.
  */
 export const submitForm = async ({ data, meta, copyToEmail }: SubmitOptions): Promise<SubmitResult> => {
   // pdf-lib and fontkit are only needed on the last step, so they stay out of

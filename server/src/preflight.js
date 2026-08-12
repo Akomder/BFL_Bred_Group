@@ -1,6 +1,6 @@
 import { configProblems, isSheetsConfigured } from './config.js'
 import { verifyMailConfig } from './mailer.js'
-import { verifySharePoint } from './archive.js'
+import { verifyDrive } from './drive.js'
 import { verifySheetsConfig } from './sheets.js'
 
 /**
@@ -36,14 +36,14 @@ export const assertReady = async () => {
     .filter(([, status]) => status !== 'ok')
     .map(([name, status]) => `mail (${name}): ${status}`)
 
-  let sharepoint = 'ok'
+  let drive = 'ok'
   try {
-    await verifySharePoint()
+    await verifyDrive()
   } catch (error) {
-    sharepoint = `FAILED — ${error.message}`
+    drive = `FAILED — ${error.message}`
   }
 
-  const failures = [...mailFailures, ...(sharepoint !== 'ok' ? [`sharepoint: ${sharepoint}`] : [])]
+  const failures = [...mailFailures, ...(drive !== 'ok' ? [`drive: ${drive}`] : [])]
   if (failures.length) fatal('configured credentials were rejected.', failures)
 
   let sheets = 'not configured — skipping'
@@ -57,5 +57,5 @@ export const assertReady = async () => {
     }
   }
 
-  return { mail, sharepoint, sheets }
+  return { mail, drive, sheets }
 }

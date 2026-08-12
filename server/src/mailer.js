@@ -1,16 +1,15 @@
 import { config, mailTransports } from './config.js'
 import { withRetry } from './retry.js'
 import { internalMessage, customerMessage } from './mail/messages.js'
-import { sendViaGraph, verifyGraph } from './mail/graphSend.js'
 import { sendViaSmtp, verifySmtp } from './mail/smtpSend.js'
 import { spool } from './spool.js'
 
-const SENDERS = { graph: sendViaGraph, smtp: sendViaSmtp }
-
 /**
- * Sends one message, trying each configured transport in order and retrying
- * the transient failures within each. Graph being down should fall through to
- * the SMTP relay rather than fail the send — that is the point of configuring both.
+ * Sends one message, retrying transient failures. `mailTransports()` only
+ * ever returns `['smtp']` or `[]` now that the service doesn't depend on
+ * Microsoft 365 for anything — kept as a loop over transports rather than a
+ * single hardcoded call so adding a second one later is a config change,
+ * not a rewrite.
  */
 const deliver = async ({ message, pdf, fileName, label }) => {
   const transports = mailTransports()
@@ -20,7 +19,7 @@ const deliver = async ({ message, pdf, fileName, label }) => {
 
   for (const name of transports) {
     try {
-      const result = await withRetry(() => SENDERS[name]({ message, pdf, fileName }), {
+      const result = await withRetry(() => sendViaSmtp({ message, pdf, fileName }), {
         attempts: config.mail.retry.attempts,
         baseDelayMs: config.mail.retry.baseDelayMs,
         onRetry: (error, attempt, delay) =>
@@ -100,7 +99,7 @@ export const verifyMailConfig = async () => {
   const results = {}
   for (const name of mailTransports()) {
     try {
-      await (name === 'graph' ? verifyGraph() : verifySmtp())
+      await verifySmtp()
       results[name] = 'ok'
     } catch (error) {
       results[name] = `FAILED — ${error.message}`
