@@ -6,6 +6,7 @@ build/
 .env
 .env.local
 .env.*.local
+.env.demo
 
 # Local fallback output of the submission service
 server/outbox/
