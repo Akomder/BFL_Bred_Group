@@ -1,13 +1,61 @@
 /** Central place for every environment-driven setting. No secrets in code. */
 
+/** Shared shape for every comma-separated env var below. */
+const list = (value, fallback = '') =>
+  (value ?? fallback)
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+
+/**
+ * How many reverse proxies sit in front of this service. Express uses it to
+ * decide how much of X-Forwarded-For to believe, and that decision decides
+ * whether the IP recorded on a form is evidence or decoration: the previous
+ * `true` meant "trust every hop", so any caller could set the header and
+ * choose the address that went into the audit mail and the ledger.
+ *
+ * 0 (the default) = tablets connect directly, so the header is ignored
+ * entirely. Set it to the real number of proxies, or to a specific proxy
+ * address/subnet, only once that is actually true.
+ */
+const trustProxySetting = () => {
+  const raw = (process.env.TRUST_PROXY ?? '0').trim()
+  if (raw === '' || raw.toLowerCase() === 'false') return false
+  if (/^\d+$/.test(raw)) return Number(raw)
+  // An address or CIDR list — Express matches the hop against it.
+  return list(raw)
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 8787),
 
   /** Comma-separated list of origins the tablets are served from. */
-  allowedOrigins: (process.env.ALLOWED_ORIGINS ?? 'http://localhost:5173')
-    .split(',')
-    .map((o) => o.trim())
-    .filter(Boolean),
+  allowedOrigins: list(process.env.ALLOWED_ORIGINS, 'http://localhost:5173'),
+
+  trustProxy: trustProxySetting(),
+
+  /**
+   * API credentials. Both are comma-separated so a key can be rotated by
+   * adding the new one, moving the tablets over, then removing the old.
+   * Nothing here has a default: an unset list means the matching endpoints
+   * refuse every request (auth.js fails closed) rather than serving anyone
+   * who can reach the port.
+   */
+  auth: {
+    /** Tablets — POST /api/submissions, GET /api/client-ip. */
+    deviceKeys: list(process.env.API_KEYS),
+    /** Support/IT — the spool endpoints and full health detail. */
+    adminKeys: list(process.env.ADMIN_API_KEYS),
+  },
+
+  /** Per-IP request ceilings. Each submission fans out into two emails, a
+   *  Drive upload and a Sheets append, so an unthrottled endpoint amplifies
+   *  a simple loop into mail volume and API quota. */
+  rateLimit: {
+    windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS ?? 15 * 60 * 1000),
+    submissions: Number(process.env.RATE_LIMIT_SUBMISSIONS ?? 60),
+    general: Number(process.env.RATE_LIMIT_GENERAL ?? 300),
+  },
 
   mail: {
     /** Every completed form goes here, per the operational requirement. */
@@ -92,6 +140,29 @@ export const isSheetsConfigured = () => isGoogleAuthConfigured() && Boolean(conf
  */
 export const configProblems = () => {
   const problems = []
+
+  if (config.auth.deviceKeys.length === 0) {
+    problems.push(
+      'No device API keys configured. Set API_KEYS to one or more secrets the tablets send ' +
+        'as `Authorization: Bearer <key>`. Generate one with `openssl rand -hex 32`.',
+    )
+  }
+
+  if (config.auth.adminKeys.length === 0) {
+    problems.push(
+      'No admin API keys configured. Set ADMIN_API_KEYS — these guard the spool endpoints, ' +
+        'which expose queued submissions and can trigger a mail flush.',
+    )
+  }
+
+  if (config.auth.deviceKeys.some((key) => config.auth.adminKeys.includes(key))) {
+    problems.push('A device key is also listed as an admin key — the tablets would gain spool access.')
+  }
+
+  const weak = [...config.auth.deviceKeys, ...config.auth.adminKeys].filter((key) => key.length < 24)
+  if (weak.length > 0) {
+    problems.push(`${weak.length} API key(s) are shorter than 24 characters. Use \`openssl rand -hex 32\`.`)
+  }
 
   if (!isMailConfigured()) {
     problems.push('No mail transport configured. Set SMTP_HOST (and friends). See server/.env.example.')

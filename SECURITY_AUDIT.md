@@ -4,6 +4,7 @@
 **Assessment type:** White-box source review + local exploit verification
 **Date:** 2026-08-20
 **Assessed by:** Security review (authorized, project owner requested)
+**Status:** All findings remediated — see [Remediation status](#remediation-status)
 
 > Scope note: This was a static/white-box assessment of the repository with local
 > proof-of-concept verification of the reachable code paths. No testing was
@@ -26,18 +27,18 @@ and unthrottled**, which turns the service into an open abuse surface, and there
 is an **unauthenticated path-traversal / arbitrary-file-write** in the spool
 subsystem.
 
-| # | Severity | Finding |
-|---|----------|---------|
-| 1 | **Critical** | No authentication on any API endpoint |
-| 2 | **High** | Path traversal → arbitrary file write via spool (`referenceNo` / filename) |
-| 3 | **High** | Open email relay: arbitrary recipient + attacker-controlled content via `copyToEmail` |
-| 4 | **Medium** | No rate limiting → mail-bomb / resource-exhaustion amplification |
-| 5 | **Medium** | Audit provenance IP is attacker-spoofable (`trust proxy` + `X-Forwarded-For`) |
-| 6 | **Medium** | Sensitive operational endpoints exposed (`/api/spool`, `/api/spool/flush`, `/api/health`) |
-| 7 | **Low** | Internal error messages returned to clients |
-| 8 | **Low** | No HTTP security headers (no `helmet`) |
-| 9 | **Low** | Uploaded "PDF" content type/magic bytes not validated |
-| 10 | **Info** | CORS is not an access control; provides no protection here |
+| # | Severity | Finding | Status |
+|---|----------|---------|--------|
+| 1 | **Critical** | No authentication on any API endpoint | ✅ Fixed |
+| 2 | **High** | Path traversal → arbitrary file write via spool (`referenceNo` / filename) | ✅ Fixed |
+| 3 | **High** | Open email relay: arbitrary recipient + attacker-controlled content via `copyToEmail` | ✅ Fixed |
+| 4 | **Medium** | No rate limiting → mail-bomb / resource-exhaustion amplification | ✅ Fixed |
+| 5 | **Medium** | Audit provenance IP is attacker-spoofable (`trust proxy` + `X-Forwarded-For`) | ✅ Fixed |
+| 6 | **Medium** | Sensitive operational endpoints exposed (`/api/spool`, `/api/spool/flush`, `/api/health`) | ✅ Fixed |
+| 7 | **Low** | Internal error messages returned to clients | ✅ Fixed |
+| 8 | **Low** | No HTTP security headers (no `helmet`) | ✅ Fixed |
+| 9 | **Low** | Uploaded "PDF" content type/magic bytes not validated | ✅ Fixed |
+| 10 | **Info** | CORS is not an access control; provides no protection here | ✅ Documented |
 
 **Positives observed** (no action needed): email HTML escaping (`mail/messages.js`),
 Google Sheets `RAW` value input mode (`sheets.js`) preventing spreadsheet injection,
@@ -253,15 +254,60 @@ endpoint. Do not rely on it as a security boundary.
 
 ---
 
-## Prioritized remediation checklist
+## Remediation status
 
-1. **Add authentication** to all endpoints; segregate admin endpoints (#1, #6).
-2. **Sanitize `referenceNo` and never use client filename for paths**; assert
-   writes stay inside the spool root (#2).
-3. **Validate `copyToEmail`** and reject header/multi-address injection (#3).
-4. **Add rate limiting** and body-size caps (#4).
-5. **Fix `trust proxy`** and stop trusting client `X-Forwarded-For` for audit IP (#5).
-6. **Generic 500 responses**, add `helmet`, validate PDF magic bytes (#7–#9).
+All ten findings were fixed in this branch. New modules: `server/src/auth.js`
+(credential checks) and `server/src/validate.js` (input validation at the trust
+boundary). Regression tests live in `server/src/security.test.js` — each is
+written as the attack, so reopening a hole fails the suite (`npm test`, 14/14
+passing).
 
-Items 1–3 are the ones that convert this from "hardening" to "actively
-exploitable" and should be fixed before any internet-facing deployment.
+| # | Fix | Where |
+|---|-----|-------|
+| 1 | Two-tier API keys (device / admin), timing-safe compare, **fails closed** — unconfigured keys return 503, never open access | `auth.js`, `app.js`, `config.js` |
+| 2 | `referenceNo` anchored allowlist (`..` unrepresentable); client filename reduced to a plain segment; `assertWithin()` proves every write stays under the spool root — enforced at the route *and* in `spool.js` | `validate.js`, `spool.js`, `app.js` |
+| 3 | Strict `copyToEmail` pattern rejecting CR/LF, comma, semicolon and angle brackets; re-checked in `mailer.js` because replayed spool manifests bypass the route | `validate.js`, `app.js`, `mailer.js` |
+| 4 | `express-rate-limit` per IP, with a tighter cap on submissions; multer `files`/`fields`/`fieldSize` caps added | `app.js`, `config.js` |
+| 5 | `trust proxy` now driven by `TRUST_PROXY`, defaulting to `0`; IP read from `req.ip` instead of the raw header | `config.js`, `app.js` |
+| 6 | Spool endpoints require the admin key; `/api/health` returns `{ok:true}` anonymously and full detail only to an admin | `app.js` |
+| 7 | Generic 500 bodies; full detail logged server-side. Added a multer error handler so a bad upload can't produce an HTML stack page | `app.js` |
+| 8 | `helmet()` enabled, `x-powered-by` disabled | `app.js` |
+| 9 | `%PDF-` magic-byte check before the upload is emailed or archived | `validate.js`, `app.js` |
+| 10 | CORS documented as a browser convenience, not a control | `app.js`, `.env.example` |
+
+### Verified against a running server
+
+```
+401  GET  /api/spool        (no key)        401  GET  /api/spool  (device key — no escalation)
+200  GET  /api/spool        (admin key)     503  any endpoint when keys are unconfigured
+400  traversal referenceNo   -> Missing or invalid meta.referenceNo
+400  non-PDF upload          -> Uploaded file is not a PDF
+400  CRLF header injection   -> Invalid copyToEmail address
+400  a@b.com, c@d.com        -> Invalid copyToEmail address
+429  submissions past the configured cap
+200  /api/client-ip with `X-Forwarded-For: 1.2.3.4` -> {"ip":"127.0.0.1"}   (spoof ignored)
+     x-content-type-options: nosniff | x-frame-options: SAMEORIGIN | HSTS set | x-powered-by absent
+```
+
+### Residual risk — read before deploying
+
+- **The tablet API key is not a secret.** Vite inlines `VITE_API_KEY` into the
+  built bundle, so anyone who can load the app can extract it. It raises the
+  bar from "anonymous internet" to "someone who reached the app", which is the
+  right control for a fixed fleet of branch tablets — but it is not per-user
+  authentication. Keep the tablets on the branch network, give each deployment
+  its own key, and rotate on device loss. Per-device certificates (mTLS) are
+  the stronger option if the threat model needs it.
+- **Rate limiting is per-instance and in-memory.** On the Vercel deployment
+  each serverless instance counts separately, so the effective ceiling is
+  higher than configured. Use a shared store (Redis) or an edge/WAF rate limit
+  if that deployment is public.
+- **Set `TRUST_PROXY` to match reality.** It defaults to `0` (no proxy). Behind
+  nginx or Vercel, leaving it at `0` records the proxy's address rather than
+  the tablet's — correct but less useful. Set it to the real hop count.
+- **Vercel has no boot preflight** (`api/index.js`), so misconfiguration shows
+  up as 503s at request time rather than a refused boot. The fail-closed auth
+  is what keeps that safe.
+- Not covered by this assessment: infrastructure and TLS configuration, the
+  Google account's own security posture, and the physical security of the
+  branch tablets.
