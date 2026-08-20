@@ -1,3 +1,5 @@
+import { authHeaders } from './submit'
+
 const DEVICE_KEY = 'bfl.deviceId'
 const BRANCH_KEY = 'bfl.branch'
 
@@ -44,7 +46,7 @@ export const isBranchRegistered = (): boolean => localStorage.getItem(BRANCH_KEY
 export const fetchClientIp = async (apiBase: string | undefined): Promise<string> => {
   if (!apiBase) return 'Not available'
   try {
-    const res = await fetch(`${apiBase}/api/client-ip`)
+    const res = await fetch(`${apiBase}/api/client-ip`, { headers: authHeaders() })
     if (!res.ok) throw new Error(String(res.status))
     const data = (await res.json()) as { ip?: string }
     return data.ip ?? 'Unknown'

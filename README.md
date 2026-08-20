@@ -30,10 +30,16 @@ Copy `web/.env.example` to `web/.env.local`:
 
 ```
 VITE_API_BASE=http://localhost:8787
+VITE_API_KEY=<one of the server's API_KEYS>
 ```
 
-Vite inlines this at build time, so it must be set before `npm run dev` or `npm run build` — not
+Vite inlines both at build time, so they must be set before `npm run dev` or `npm run build` — not
 something that can be left for later.
+
+The service rejects an unauthenticated form, so `VITE_API_KEY` has to match one of the values in
+the server's `API_KEYS`. Generate keys with `openssl rand -hex 32`. Note that the key ends up
+inside the built bundle — it keeps anonymous callers off the API, but it is a deployment
+credential, not a per-user secret. See [Security](#security).
 
 > The camera needs a secure context. `localhost` counts; on a real tablet, serve the app over HTTPS
 > or the photo step will report that the camera is unavailable (the flow continues without a photo).
@@ -84,16 +90,21 @@ and a generated Device ID are stored on the device and printed on every form. Ed
 1. **Logo** — replace `web/public/logo-bfl.png` with the real asset. The app tries
    `https://bfl-bred.com/wp-content/uploads/2022/05/BFL-BRED-Group-Logo.png` first and falls back to
    the bundled file, so a branch tablet on a restricted network still prints a logo.
-2. **Email and Google Drive** — copy `server/.env.example` to `server/.env` and fill it in. See
+2. **API keys** — set `API_KEYS` (tablets) and `ADMIN_API_KEYS` (support/IT) in `server/.env`,
+   and put a device key in the app's `VITE_API_KEY`. Both are **required**; the service refuses
+   to boot without them and every endpoint returns 503 rather than serving an unauthenticated
+   caller. Generate each with `openssl rand -hex 32`, and keep the two lists disjoint — the boot
+   check rejects a device key that would also grant spool access. See [Security](#security).
+3. **Email and Google Drive** — copy `server/.env.example` to `server/.env` and fill it in. See
    [Setting up Google access](#setting-up-google-access) and [Email delivery](#email-delivery)
    below. **Both are required**: the service checks at boot and refuses to start until real,
    working credentials for a mail transport and for Drive are in place — see [Startup
    checks](#startup-checks).
-3. **Branches** — see above.
-4. **Lao wording** — the Lao strings in `web/src/i18n/dictionary.ts` and the Lao number words in
+4. **Branches** — see above.
+5. **Lao wording** — the Lao strings in `web/src/i18n/dictionary.ts` and the Lao number words in
    `web/src/lib/amountInWords.ts` should be reviewed by a native speaker before go-live. The English
    wording is authoritative in the meantime; both are printed on the PDF.
-5. **Transaction ledger (optional)** — see [Transaction ledger](#transaction-ledger-google-sheets)
+6. **Transaction ledger (optional)** — see [Transaction ledger](#transaction-ledger-google-sheets)
    below if you want every submission logged as a row in a Google Sheet.
 
 ## Email delivery
@@ -145,9 +156,9 @@ the one extra step if you also want the Sheets ledger.
 ### Startup checks
 
 `npm start` refuses to bring the service up unless it can actually do its job. Before it
-starts listening, it checks that SMTP and Google Drive are both **configured**, and then proves
-the credentials **work** — an SMTP login and a real request to the Drive folder, not just that
-the values are non-empty.
+starts listening, it checks that the API keys, SMTP and Google Drive are all **configured**, and
+then proves the mail and Drive credentials **work** — an SMTP login and a real request to the
+Drive folder, not just that the values are non-empty.
 
 Either check failing exits the process immediately with a specific reason, rather than starting
 in a broken state that only becomes visible days later as a growing spool:
@@ -220,6 +231,52 @@ every response). If it *is* configured, startup still verifies the spreadsheet i
 but a failure here only logs a warning, it never blocks the service from starting or a
 submission from completing. A missed ledger row is an inconvenience; the PDF archive and the
 audit email are what a lost transaction can't afford to skip, and those still fail loudly.
+
+## Security
+
+`SECURITY_AUDIT.md` has the full assessment and remediation record. The short version of how
+the service is protected, and what you still have to get right at deploy time:
+
+**Every endpoint requires a key.** Two tiers, kept separate on purpose:
+
+| Endpoint | Key |
+|---|---|
+| `POST /api/submissions`, `GET /api/client-ip` | `API_KEYS` (tablets) |
+| `GET /api/spool`, `POST /api/spool/flush` | `ADMIN_API_KEYS` (support/IT) |
+| `GET /api/health` | none for `{ok:true}`; `ADMIN_API_KEYS` for full detail |
+
+Send it as `Authorization: Bearer <key>` or `X-API-Key: <key>`:
+
+```bash
+curl -H "Authorization: Bearer $ADMIN_KEY" http://localhost:8787/api/spool
+```
+
+A tablet key deliberately cannot read or flush the spool — that endpoint lists queued
+submissions and can trigger a mail send.
+
+**Unconfigured means closed.** Leaving `API_KEYS` or `ADMIN_API_KEYS` blank does not disable the
+check; the matching endpoints return 503. A banking endpoint that lost its credentials should
+stop, not open. This is what protects the Vercel deployment, which has no boot preflight.
+
+**CORS is not a security control.** `ALLOWED_ORIGINS` is a browser convenience and does nothing
+against `curl` or a script. The keys are the boundary.
+
+**Set `TRUST_PROXY` to the truth.** It decides how much of `X-Forwarded-For` the service
+believes, and that decides whether the IP recorded on a form is evidence or decoration. `0` (the
+default) means tablets connect directly and the header is ignored. Behind nginx or Vercel, set
+the real hop count — otherwise you record the proxy's address.
+
+### Things to know before going public
+
+- **The tablet key lives in the bundle.** Vite inlines `VITE_API_KEY`, so anyone who can load
+  the app can read it. Right control for a fixed fleet of branch tablets; not per-user auth.
+  Keep the tablets on the branch network, give each deployment its own key, rotate on device
+  loss. mTLS is the stronger option if you need it.
+- **Rate limiting is per-instance and in-memory.** Each Vercel instance counts separately, so
+  the real ceiling is higher than configured. Use a shared store or an edge/WAF limit if the
+  deployment is public.
+- Run `npm test` in `server/` after touching validation — `src/security.test.js` is written as
+  the attacks, so a regression fails the suite rather than production.
 
 ## Notes for whoever picks this up
 
