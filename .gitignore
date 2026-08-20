@@ -15,3 +15,5 @@ server/outbox/
 *.log
 
 .claude/
+.vercel
+.env*
