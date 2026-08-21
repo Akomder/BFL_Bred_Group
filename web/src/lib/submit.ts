@@ -2,6 +2,18 @@ import type { FormData, SubmissionMeta } from './types'
 
 export const API_BASE: string | undefined = import.meta.env.VITE_API_BASE
 
+/**
+ * Deployment credential for the submission service. Vite inlines this into
+ * the bundle at build time, so treat it as "keeps anonymous callers out",
+ * not as a secret: anyone who can load the app can read it. Each deployment
+ * gets its own key so one can be rotated without touching the others.
+ */
+export const API_KEY: string | undefined = import.meta.env.VITE_API_KEY
+
+/** Every call to the service carries the key; the server rejects it otherwise. */
+export const authHeaders = (): Record<string, string> =>
+  API_KEY ? { Authorization: `Bearer ${API_KEY}` } : {}
+
 /** Where every completed form is sent, per the operational requirement. */
 export const PRIMARY_RECIPIENT = 'it.support@bfl.la'
 
@@ -41,6 +53,11 @@ export const submitForm = async ({ data, meta, copyToEmail }: SubmitOptions): Pr
     // surfaces through the same error path a real network failure would.
     throw new Error('No server configured (VITE_API_BASE is not set).')
   }
+  if (!API_KEY) {
+    // Same class of mistake: the service rejects an unauthenticated form, so
+    // fail here with the actual reason rather than on a confusing 401.
+    throw new Error('No API key configured (VITE_API_KEY is not set).')
+  }
 
   const body = new FormData()
   body.append(
@@ -68,7 +85,11 @@ export const submitForm = async ({ data, meta, copyToEmail }: SubmitOptions): Pr
   if (data.photo) body.append('photo', await (await fetch(data.photo)).blob(), 'photo.jpg')
   if (data.signature) body.append('signature', await (await fetch(data.signature)).blob(), 'signature.png')
 
-  const res = await fetch(`${API_BASE}/api/submissions`, { method: 'POST', body })
+  const res = await fetch(`${API_BASE}/api/submissions`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body,
+  })
   if (!res.ok) throw new Error(`Submission failed (${res.status})`)
   const result = (await res.json()) as { referenceNo?: string; delivered?: boolean }
 

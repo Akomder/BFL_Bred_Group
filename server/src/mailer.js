@@ -3,6 +3,7 @@ import { withRetry } from './retry.js'
 import { internalMessage, customerMessage } from './mail/messages.js'
 import { sendViaSmtp, verifySmtp } from './mail/smtpSend.js'
 import { spool } from './spool.js'
+import { isValidEmail } from './validate.js'
 
 /**
  * Sends one message, retrying transient failures. `mailTransports()` only
@@ -51,7 +52,17 @@ const deliver = async ({ message, pdf, fileName, label }) => {
  */
 export const sendSubmission = async ({ payload, pdf, fileName }) => {
   const internal = internalMessage(payload)
-  const customer = payload.copyToEmail ? customerMessage(payload) : null
+
+  /* Checked at the route too, but re-checked here because this is the line
+     that puts the address into an SMTP envelope — and because a replayed
+     spool manifest reaches this function without passing the route at all.
+     An address that fails the check simply gets no copy: the internal audit
+     mail and the archive are unaffected. */
+  const wantsCopy = Boolean(payload.copyToEmail)
+  if (wantsCopy && !isValidEmail(payload.copyToEmail)) {
+    console.warn(`[mail] ${payload.meta.referenceNo} — refusing customer copy to an invalid address`)
+  }
+  const customer = wantsCopy && isValidEmail(payload.copyToEmail) ? customerMessage(payload) : null
   const recipients = [config.mail.to, ...(customer ? [payload.copyToEmail] : [])]
 
   // The internal copy is the one that matters operationally.
