@@ -83,33 +83,30 @@ export const config = {
   },
 
   /**
-   * One Entra app registration (client-credentials grant) backs both the PDF
-   * archive and the optional transaction ledger — the app authenticates as
-   * itself, not as a user, and uploads land in a SharePoint/OneDrive drive
-   * the app registration has been granted access to. See graph.js.
+   * One Google OAuth authorization backs both the PDF archive (Drive) and
+   * the optional transaction ledger (Sheets) — the app acts as whichever
+   * Google account ran `npm run google:auth`, not as a service account
+   * (service accounts have no Drive storage of their own outside a paid
+   * Workspace Shared Drive). See google.js.
    */
-  sharepoint: {
-    tenantId: process.env.SP_TENANT_ID,
-    clientId: process.env.SP_CLIENT_ID,
-    clientSecret: process.env.SP_CLIENT_SECRET,
-    /** The drive (OneDrive or a SharePoint document library) PDFs and the
-     *  ledger workbook live in. */
-    driveId: process.env.SP_DRIVE_ID,
-    /** The PDF archive's parent folder within that drive — the operational
-     *  requirement, same standing as mail. */
-    folder: process.env.SP_FOLDER ?? 'CashForms',
-    timeoutMs: Number(process.env.SP_TIMEOUT_MS ?? 15000),
-  },
+  google: {
+    oauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID,
+    oauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
+    /** Minted once, interactively, by scripts/google-oauth-setup.mjs. */
+    oauthRefreshToken: process.env.GOOGLE_OAUTH_REFRESH_TOKEN,
+    timeoutMs: Number(process.env.GOOGLE_TIMEOUT_MS ?? 15000),
 
-  /** Optional transaction ledger — a bonus on top of the PDF archive and the
-   *  audit email, not a replacement for either. An Excel workbook in the
-   *  same SharePoint/OneDrive drive, with a Table already defined in it.
-   *  See excel.js. */
-  ledger: {
-    /** Path to the .xlsx file within the SharePoint/OneDrive drive above. */
-    path: process.env.EXCEL_PATH,
-    /** Name of the Table (Insert > Table in Excel) rows get appended to. */
-    table: process.env.EXCEL_TABLE ?? 'Transactions',
+    /** The PDF archive — the operational requirement, same standing as mail. */
+    drive: {
+      folderId: process.env.GOOGLE_DRIVE_FOLDER_ID,
+    },
+
+    /** Optional transaction ledger — a bonus on top of the PDF archive and the
+     *  audit email, not a replacement for either. See sheets.js. */
+    sheets: {
+      spreadsheetId: process.env.GOOGLE_SHEETS_SPREADSHEET_ID,
+      tab: process.env.GOOGLE_SHEETS_TAB ?? 'Transactions',
+    },
   },
 
   /** Where undeliverable forms are spooled — see spool.js — so a submission
@@ -128,12 +125,12 @@ export const isMailConfigured = () => isSmtpConfigured()
 
 export const mailTransports = () => (isSmtpConfigured() ? ['smtp'] : [])
 
-const isGraphAppConfigured = () =>
-  Boolean(config.sharepoint.tenantId && config.sharepoint.clientId && config.sharepoint.clientSecret)
+const isGoogleAuthConfigured = () =>
+  Boolean(config.google.oauthClientId && config.google.oauthClientSecret && config.google.oauthRefreshToken)
 
-export const isSharePointConfigured = () => isGraphAppConfigured() && Boolean(config.sharepoint.driveId)
+export const isDriveConfigured = () => isGoogleAuthConfigured() && Boolean(config.google.drive.folderId)
 
-export const isLedgerConfigured = () => isGraphAppConfigured() && Boolean(config.ledger.path)
+export const isSheetsConfigured = () => isGoogleAuthConfigured() && Boolean(config.google.sheets.spreadsheetId)
 
 /**
  * What's missing before this can run as a real branch service, in plain
@@ -171,12 +168,11 @@ export const configProblems = () => {
     problems.push('No mail transport configured. Set SMTP_HOST (and friends). See server/.env.example.')
   }
 
-  if (!isSharePointConfigured()) {
+  if (!isDriveConfigured()) {
     problems.push(
-      'SharePoint/OneDrive archive not configured. Set SP_TENANT_ID, SP_CLIENT_ID, ' +
-        'SP_CLIENT_SECRET (from an Entra app registration with Files.ReadWrite.All or ' +
-        'Sites.ReadWrite.All application permission, admin-consented) and SP_DRIVE_ID. ' +
-        'See server/.env.example.',
+      'Google Drive archive not configured. Set GOOGLE_OAUTH_CLIENT_ID and ' +
+        'GOOGLE_OAUTH_CLIENT_SECRET, run `npm run google:auth` to get GOOGLE_OAUTH_REFRESH_TOKEN, ' +
+        'and set GOOGLE_DRIVE_FOLDER_ID. See server/.env.example.',
     )
   }
 

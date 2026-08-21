@@ -2,22 +2,14 @@ import express from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import multer from 'multer'
-<<<<<<< HEAD
-import { config, isLedgerConfigured, mailTransports } from './config.js'
-=======
 import rateLimit from 'express-rate-limit'
 import { config, isSheetsConfigured, mailTransports } from './config.js'
->>>>>>> 94a5d5c083615b9f9dc9a62fc00bb42c294961ac
 import { sendSubmission } from './mailer.js'
-import { archiveSubmission } from './archive.js'
+import { archiveSubmission } from './drive.js'
 import { flushSpool, listSpool, spool } from './spool.js'
-<<<<<<< HEAD
-import { appendTransactionRow } from './excel.js'
-=======
 import { appendTransactionRow } from './sheets.js'
 import { requireDeviceKey, requireAdminKey, hasAdminKey } from './auth.js'
 import { isSafeReference, safeFileName, isValidEmail, looksLikePdf } from './validate.js'
->>>>>>> 94a5d5c083615b9f9dc9a62fc00bb42c294961ac
 
 /**
  * Builds the Express app — every route, no side effects beyond that. Split
@@ -73,8 +65,8 @@ export const createApp = () => {
     res.json({
       ok: true,
       mail: mailTransports(),
-      archive: 'sharepoint',
-      ledger: isLedgerConfigured() ? 'configured' : 'not configured',
+      archive: 'drive',
+      sheets: isSheetsConfigured() ? 'configured' : 'not configured',
       spoolDepth: (await listSpool()).length,
     })
   })
@@ -174,8 +166,8 @@ export const createApp = () => {
 
         /* The ledger row needs the delivered/archived outcome, so it runs after
            both settle rather than alongside them. Best-effort: never blocks or
-           fails the submission, whether or not the ledger is even configured. */
-        const ledger = await appendTransactionRow({ payload, mail: mailResult, archive: archiveResult })
+           fails the submission, whether or not Sheets is even configured. */
+        const sheet = await appendTransactionRow({ payload, mail: mailResult, archive: archiveResult })
 
         res.json({
           referenceNo: payload.meta.referenceNo,
@@ -186,7 +178,7 @@ export const createApp = () => {
           spooled: mailResult.spooled,
           storedPath: archive.status === 'fulfilled' ? archive.value.path : mailResult.storedPath,
           archived: archiveResult.archived,
-          ledgerLogged: ledger.logged,
+          sheetLogged: sheet.logged,
         })
       } catch (error) {
         /* Logged in full, reported as a generic failure: the raw message can

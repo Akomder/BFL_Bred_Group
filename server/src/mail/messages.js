@@ -19,7 +19,7 @@ const escapeHtml = (value) =>
 const kindLabel = (kind) => (kind === 'deposit' ? 'Cash Deposit' : 'Cash Withdrawal')
 
 /** "010 1234567 01 2345 12" — the 3-7-2-4-2 grouping used on the form.
- *  Exported for excel.js, which formats the same field the same way. */
+ *  Exported for sheets.js, which formats the same field the same way. */
 export const groupAccountNumber = (digits = '') => {
   const blocks = [3, 7, 2, 4, 2]
   let rest = String(digits).replace(/\D/g, '')

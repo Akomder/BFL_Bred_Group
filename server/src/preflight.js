@@ -1,7 +1,7 @@
-import { configProblems, isLedgerConfigured } from './config.js'
+import { configProblems, isSheetsConfigured } from './config.js'
 import { verifyMailConfig } from './mailer.js'
-import { verifySharePoint } from './archive.js'
-import { verifyLedgerConfig } from './excel.js'
+import { verifyDrive } from './drive.js'
+import { verifySheetsConfig } from './sheets.js'
 
 /**
  * Logs the reason and throws, which is what actually stops the boot sequence
@@ -23,9 +23,9 @@ const fatal = (title, lines) => {
  * needs to be loud and immediate, not discovered from a growing spool at
  * end of day. Runs once at boot, before the server starts listening.
  *
- * The Excel ledger is deliberately exempt: it's a bonus, not the operational
- * requirement, so it degrades to "skipped" rather than blocking the service
- * (see excel.js).
+ * The Google Sheets ledger is deliberately exempt: it's a bonus, not the
+ * operational requirement, so it degrades to "skipped" rather than blocking
+ * the service (see sheets.js).
  */
 export const assertReady = async () => {
   const missing = configProblems()
@@ -36,26 +36,26 @@ export const assertReady = async () => {
     .filter(([, status]) => status !== 'ok')
     .map(([name, status]) => `mail (${name}): ${status}`)
 
-  let archive = 'ok'
+  let drive = 'ok'
   try {
-    await verifySharePoint()
+    await verifyDrive()
   } catch (error) {
-    archive = `FAILED — ${error.message}`
+    drive = `FAILED — ${error.message}`
   }
 
-  const failures = [...mailFailures, ...(archive !== 'ok' ? [`archive: ${archive}`] : [])]
+  const failures = [...mailFailures, ...(drive !== 'ok' ? [`drive: ${drive}`] : [])]
   if (failures.length) fatal('configured credentials were rejected.', failures)
 
-  let ledger = 'not configured — skipping'
-  if (isLedgerConfigured()) {
+  let sheets = 'not configured — skipping'
+  if (isSheetsConfigured()) {
     try {
-      await verifyLedgerConfig()
-      ledger = 'ok'
+      await verifySheetsConfig()
+      sheets = 'ok'
     } catch (error) {
       // Optional, so this never blocks boot — just says so loudly in the log.
-      ledger = `FAILED — ${error.message}`
+      sheets = `FAILED — ${error.message}`
     }
   }
 
-  return { mail, archive, ledger }
+  return { mail, drive, sheets }
 }
