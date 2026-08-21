@@ -1,11 +1,11 @@
 import express from 'express'
 import cors from 'cors'
 import multer from 'multer'
-import { config, isSheetsConfigured, mailTransports } from './config.js'
+import { config, isLedgerConfigured, mailTransports } from './config.js'
 import { sendSubmission } from './mailer.js'
-import { archiveSubmission } from './drive.js'
+import { archiveSubmission } from './archive.js'
 import { flushSpool, listSpool, spool } from './spool.js'
-import { appendTransactionRow } from './sheets.js'
+import { appendTransactionRow } from './excel.js'
 
 /**
  * Builds the Express app — every route, no side effects beyond that. Split
@@ -33,8 +33,8 @@ export const createApp = () => {
     res.json({
       ok: true,
       mail: mailTransports(),
-      archive: 'drive',
-      sheets: isSheetsConfigured() ? 'configured' : 'not configured',
+      archive: 'sharepoint',
+      ledger: isLedgerConfigured() ? 'configured' : 'not configured',
       spoolDepth: (await listSpool()).length,
     })
   })
@@ -100,8 +100,8 @@ export const createApp = () => {
 
         /* The ledger row needs the delivered/archived outcome, so it runs after
            both settle rather than alongside them. Best-effort: never blocks or
-           fails the submission, whether or not Sheets is even configured. */
-        const sheet = await appendTransactionRow({ payload, mail: mailResult, archive: archiveResult })
+           fails the submission, whether or not the ledger is even configured. */
+        const ledger = await appendTransactionRow({ payload, mail: mailResult, archive: archiveResult })
 
         res.json({
           referenceNo: payload.meta.referenceNo,
@@ -112,7 +112,7 @@ export const createApp = () => {
           spooled: mailResult.spooled,
           storedPath: archive.status === 'fulfilled' ? archive.value.path : mailResult.storedPath,
           archived: archiveResult.archived,
-          sheetLogged: sheet.logged,
+          ledgerLogged: ledger.logged,
         })
       } catch (error) {
         console.error('[submissions] failed', error)

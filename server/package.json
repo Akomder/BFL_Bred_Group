@@ -3,13 +3,12 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Receives completed cash deposit/withdrawal forms, emails the PDF and archives it to Google Drive.",
+  "description": "Receives completed cash deposit/withdrawal forms, emails the PDF and archives it to SharePoint/OneDrive.",
   "main": "src/index.js",
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
     "dev": "node --watch --env-file-if-exists=.env src/index.js",
-    "test": "node --experimental-test-module-mocks --test \"src/**/*.test.js\"",
-    "google:auth": "node --env-file-if-exists=.env scripts/google-oauth-setup.mjs"
+    "test": "node --experimental-test-module-mocks --test \"src/**/*.test.js\""
   },
   "dependencies": {
     "cors": "^2.8.5",

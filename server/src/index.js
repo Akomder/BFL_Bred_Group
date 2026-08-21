@@ -26,8 +26,8 @@ async function main() {
   app.listen(config.port, async () => {
     console.log(`BFL cash form service listening on :${config.port}`)
     console.log(`  mail    -> ${mailTransports().join(' then ')} (verified)`)
-    console.log('  archive -> Google Drive (verified)')
-    console.log(`  sheets  -> ${verified.sheets}`)
+    console.log('  archive -> SharePoint/OneDrive (verified)')
+    console.log(`  ledger  -> ${verified.ledger}`)
     console.log(`  forms are always sent to ${config.mail.to}`)
 
     const pending = await listSpool()
