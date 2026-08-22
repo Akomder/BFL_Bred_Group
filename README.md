@@ -256,15 +256,16 @@ submissions and can trigger a mail send.
 
 **Unconfigured means closed.** Leaving `API_KEYS` or `ADMIN_API_KEYS` blank does not disable the
 check; the matching endpoints return 503. A banking endpoint that lost its credentials should
-stop, not open. This is what protects the Vercel deployment, which has no boot preflight.
+stop, not open. It is also the runtime backstop for any deployment that reaches a route without
+having passed the boot preflight.
 
 **CORS is not a security control.** `ALLOWED_ORIGINS` is a browser convenience and does nothing
 against `curl` or a script. The keys are the boundary.
 
 **Set `TRUST_PROXY` to the truth.** It decides how much of `X-Forwarded-For` the service
 believes, and that decides whether the IP recorded on a form is evidence or decoration. `0` (the
-default) means tablets connect directly and the header is ignored. Behind nginx or Vercel, set
-the real hop count — otherwise you record the proxy's address.
+default) means tablets connect directly and the header is ignored. Behind a reverse proxy such
+as nginx, set the real hop count — otherwise you record the proxy's address.
 
 ### Things to know before going public
 
@@ -272,9 +273,9 @@ the real hop count — otherwise you record the proxy's address.
   the app can read it. Right control for a fixed fleet of branch tablets; not per-user auth.
   Keep the tablets on the branch network, give each deployment its own key, rotate on device
   loss. mTLS is the stronger option if you need it.
-- **Rate limiting is per-instance and in-memory.** Each Vercel instance counts separately, so
-  the real ceiling is higher than configured. Use a shared store or an edge/WAF limit if the
-  deployment is public.
+- **Rate limiting is per-instance and in-memory.** Any deployment running more than one process
+  counts each separately, so the real ceiling is higher than configured. Use a shared store or
+  an edge/WAF limit if the deployment is public.
 - Run `npm test` in `server/` after touching validation — `src/security.test.js` is written as
   the attacks, so a regression fails the suite rather than production.
 

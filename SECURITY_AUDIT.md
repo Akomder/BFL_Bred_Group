@@ -298,16 +298,17 @@ passing).
   authentication. Keep the tablets on the branch network, give each deployment
   its own key, and rotate on device loss. Per-device certificates (mTLS) are
   the stronger option if the threat model needs it.
-- **Rate limiting is per-instance and in-memory.** On the Vercel deployment
-  each serverless instance counts separately, so the effective ceiling is
-  higher than configured. Use a shared store (Redis) or an edge/WAF rate limit
-  if that deployment is public.
+- **Rate limiting is per-instance and in-memory.** Any deployment running more
+  than one process counts each separately, so the effective ceiling is higher
+  than configured. Use a shared store (Redis) or an edge/WAF rate limit if the
+  deployment is public.
 - **Set `TRUST_PROXY` to match reality.** It defaults to `0` (no proxy). Behind
-  nginx or Vercel, leaving it at `0` records the proxy's address rather than
-  the tablet's — correct but less useful. Set it to the real hop count.
-- **Vercel has no boot preflight** (`api/index.js`), so misconfiguration shows
-  up as 503s at request time rather than a refused boot. The fail-closed auth
-  is what keeps that safe.
+  a reverse proxy such as nginx, leaving it at `0` records the proxy's address
+  rather than the tablet's — correct but less useful. Set it to the real hop
+  count.
+- **Any deployment that skips the boot preflight** surfaces misconfiguration as
+  503s at request time rather than a refused boot. The fail-closed auth is what
+  keeps that safe.
 - Not covered by this assessment: infrastructure and TLS configuration, the
   Google account's own security posture, and the physical security of the
   branch tablets.

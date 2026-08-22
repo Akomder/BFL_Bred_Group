@@ -12,12 +12,10 @@ import { requireDeviceKey, requireAdminKey, hasAdminKey } from './auth.js'
 import { isSafeReference, safeFileName, isValidEmail, looksLikePdf } from './validate.js'
 
 /**
- * Builds the Express app — every route, no side effects beyond that. Split
- * out from index.js so two very different entry points can share it without
- * duplicating routes: index.js (VPS/local — calls assertReady() then
- * app.listen()) and api/index.js (Vercel — exports this app directly; a
- * serverless function can't call process.exit() the way the VPS preflight
- * does on failure, so that entry point checks config differently).
+ * Builds the Express app — every route, no side effects beyond that. Kept
+ * separate from index.js so the routes can be built and exercised without
+ * binding a port or running the boot preflight: index.js owns assertReady()
+ * and app.listen(), this owns the routes.
  *
  * Every route below is authenticated (auth.js) and rate limited. CORS is
  * still configured, but it is a browser convenience, not a control: it never

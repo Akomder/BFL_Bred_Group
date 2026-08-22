@@ -5,10 +5,7 @@ import { assertReady } from './preflight.js'
 import { resetSmtpTransport } from './mail/smtpSend.js'
 
 /**
- * VPS/local entry point — not used by the Vercel deployment (see
- * api/index.js, which imports createApp() directly and skips the
- * process.exit()-on-failure preflight below, since a serverless function
- * can't do that safely).
+ * The service entry point.
  *
  * Everything lives inside main() so a preflight failure genuinely stops here
  * — `await assertReady()` rejecting means app.listen() below never runs,

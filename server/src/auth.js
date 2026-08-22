@@ -31,8 +31,8 @@ const presentedKey = (req) => {
  * Fails closed. An unconfigured key list means nobody gets in, rather than
  * everybody — a deployment that forgot to set API_KEYS is a misconfiguration,
  * and the safe reading of a misconfiguration on a banking endpoint is "deny".
- * The VPS preflight refuses to boot in this state; on Vercel, where there is
- * no preflight (see api/index.js), this 503 is what holds the line.
+ * The boot preflight refuses to start the service in this state; this 503 is
+ * the runtime backstop for any path that reaches a route regardless.
  */
 export const requireKey = (keysFor, label) => (req, res, next) => {
   const allowed = keysFor()
