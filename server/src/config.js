@@ -83,13 +83,33 @@ export const config = {
   },
 
   /**
-   * One Google OAuth authorization backs both the PDF archive (Drive) and
-   * the optional transaction ledger (Sheets) — the app acts as whichever
-   * Google account ran `npm run google:auth`, not as a service account
-   * (service accounts have no Drive storage of their own outside a paid
-   * Workspace Shared Drive). See google.js.
+   * One Google authorization backs both the PDF archive (Drive) and the
+   * optional transaction ledger (Sheets). Two shapes are accepted, and
+   * google.js prefers the first:
+   *
+   *   service account  GOOGLE_CLIENT_EMAIL + GOOGLE_PRIVATE_KEY. The
+   *     production shape. Access belongs to the bank, via a Shared Drive the
+   *     service account is granted on (deploy.md §4) — which is what answers
+   *     the old objection that a service account has no Drive storage of its
+   *     own. Nobody's personal Google session can revoke it by leaving.
+   *   personal OAuth   GOOGLE_OAUTH_CLIENT_ID + _SECRET + _REFRESH_TOKEN.
+   *     The original shape: the app acts as whichever account ran
+   *     `npm run google:auth`. Kept for local development, and so an existing
+   *     deployment does not break the moment this lands.
+   *
+   * See google.js for how each is exchanged for an access token.
    */
   google: {
+    /** Service account — the `client_email` field of its JSON key. */
+    clientEmail: process.env.GOOGLE_CLIENT_EMAIL,
+    /**
+     * The `private_key` field of that same JSON key. Env vars cannot hold
+     * real newlines, so a key pasted from the JSON arrives with literal \n
+     * two-character sequences; they are restored here rather than in
+     * google.js, so every consumer sees a usable PEM.
+     */
+    privateKey: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+
     oauthClientId: process.env.GOOGLE_OAUTH_CLIENT_ID,
     oauthClientSecret: process.env.GOOGLE_OAUTH_CLIENT_SECRET,
     /** Minted once, interactively, by scripts/google-oauth-setup.mjs. */
@@ -131,8 +151,18 @@ export const isMailConfigured = () => isSmtpConfigured()
 
 export const mailTransports = () => (isSmtpConfigured() ? ['smtp'] : [])
 
-const isGoogleAuthConfigured = () =>
+/** True when the service account's key pair is present and complete. */
+export const isServiceAccountConfigured = () =>
+  Boolean(config.google.clientEmail && config.google.privateKey)
+
+/** True when the personal-OAuth trio is present and complete. */
+const isOauthConfigured = () =>
   Boolean(config.google.oauthClientId && config.google.oauthClientSecret && config.google.oauthRefreshToken)
+
+/* Either shape will do. Deliberately not "all five": requiring both would
+   make the service-account migration a flag day, and accepting a half-filled
+   one would let the service boot toward a token exchange that cannot work. */
+const isGoogleAuthConfigured = () => isServiceAccountConfigured() || isOauthConfigured()
 
 export const isDriveConfigured = () => isGoogleAuthConfigured() && Boolean(config.google.drive.folderId)
 
@@ -176,9 +206,11 @@ export const configProblems = () => {
 
   if (!isDriveConfigured()) {
     problems.push(
-      'Google Drive archive not configured. Set GOOGLE_OAUTH_CLIENT_ID and ' +
-        'GOOGLE_OAUTH_CLIENT_SECRET, run `npm run google:auth` to get GOOGLE_OAUTH_REFRESH_TOKEN, ' +
-        'and set GOOGLE_DRIVE_FOLDER_ID. See server/.env.example.',
+      'Google Drive archive not configured. Set GOOGLE_DRIVE_FOLDER_ID, plus one credential ' +
+        'shape: GOOGLE_CLIENT_EMAIL and GOOGLE_PRIVATE_KEY from a service account key ' +
+        '(production — see deploy.md §4), or GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET ' +
+        'and a GOOGLE_OAUTH_REFRESH_TOKEN from `npm run google:auth` (local development). ' +
+        'See server/.env.example.',
     )
   }
 
