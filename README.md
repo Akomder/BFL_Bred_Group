@@ -137,11 +137,26 @@ match the authenticated account.
 
 ## Setting up Google access
 
-The archive authenticates as a real Google account via OAuth — **not** a service account.
-Service accounts have no Drive storage of their own outside a paid Workspace Shared Drive, so
-they can't upload anything to an ordinary personal Drive; this ran into that dead end before
-landing here. One authorization backs both **Drive** (the PDF archive, required) and **Sheets**
-(the optional ledger below).
+Two credential shapes work, and one authorization backs both **Drive** (the PDF archive,
+required) and **Sheets** (the optional ledger below). `google.js` prefers the service account
+when both are present.
+
+### Production — service account + Shared Drive
+
+Set `GOOGLE_CLIENT_EMAIL` and `GOOGLE_PRIVATE_KEY` from the service account's JSON key.
+Access then belongs to the bank rather than to one employee's Google session, so nobody
+leaving takes the archive with them. Full procedure in `deploy.md` §4 — the Shared Drive in
+§4.1 is what makes this work at all, since a service account has no Drive storage of its own
+and the grant in §4.4 is the step that actually matters.
+
+Paste the private key on one line with its `\n` sequences intact, in quotes; `config.js`
+restores the real newlines.
+
+### Local development — personal OAuth
+
+The app acts as whichever Google account authorized it. Simpler to set up, and fine for a
+laptop, but it ties the archive to one person's session — `deploy.md` §11-D revokes this grant
+for production.
 
 1. In [Google Cloud Console](https://console.cloud.google.com), create or reuse a project, then
    **APIs & Services → Library** → enable the **Google Drive API** (and the **Google Sheets
@@ -161,8 +176,14 @@ landing here. One authorization backs both **Drive** (the PDF archive, required)
    `.../folders/THIS_PART`) in `GOOGLE_DRIVE_FOLDER_ID`. No sharing step — the app is
    authenticating as you, so it already has whatever access you have.
 
-That's the required part. See [Transaction ledger](#transaction-ledger-google-sheets) below for
-the one extra step if you also want the Sheets ledger.
+That's the required part for local development. See
+[Transaction ledger](#transaction-ledger-google-sheets) below for the one extra step if you
+also want the Sheets ledger.
+
+Note that step 5 has no sharing step precisely because the app is authenticating *as you*. The
+service account above is the opposite: it owns nothing, so it must be granted on the Shared
+Drive explicitly (`deploy.md` §4.4). Forgetting that grant is the usual reason a
+correctly-configured service account still gets a 404 from Drive.
 
 ### Startup checks
 

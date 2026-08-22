@@ -462,7 +462,25 @@ it entirely. The controls that matter are S1's middlewares and §9's allowlist.
 One Google identity backs both the required PDF archive (Drive) and the optional ledger
 (Sheets).
 
-### 4.0 Prerequisite code change
+### 4.0 Prerequisite code change — **DONE 2026-08-23**
+
+`server/src/google.js` now performs both grants and prefers the service account, so §4.1
+onward can proceed. What landed, against what this section specified:
+
+- `google.js` — `buildAssertion()` signs the RS256 JWT and `grantBody()` picks the shape;
+  both flows still exchange at the same `TOKEN_URL` and share the same token cache.
+- `config.js` — gains `clientEmail` and `privateKey` (the latter restoring `\n` sequences,
+  since env vars cannot hold real newlines). `isGoogleAuthConfigured()` accepts either shape,
+  and a **half-filled** service account counts as neither.
+- `drive.js`, `sheets.js`, `preflight.js` — unchanged, as specified.
+- Covered by `google.test.js` (assertion shape, verified against a real key pair) and
+  `googleAuth.test.js` (which shape is accepted, and which wins when both are set).
+
+Personal OAuth still works, so this is not a flag day — but §11-D revokes that grant, so a
+production deployment should carry only `GOOGLE_CLIENT_EMAIL` and `GOOGLE_PRIVATE_KEY`.
+
+<details>
+<summary>Original specification, for reference</summary>
 
 `server/src/google.js:18-44` currently performs only the OAuth **refresh-token** grant, i.e.
 the app acts as one person's Google account. Production needs a service account. The change
@@ -479,7 +497,7 @@ is roughly twenty lines:
 - Nothing downstream changes: `drive.js`, `sheets.js` and `preflight.js` all go through
   `getGoogleToken()`.
 
-Do not start 4.1 assuming this is done — confirm it with whoever maintains the code.
+</details>
 
 ### 4.1 Create the Shared Drive
 
