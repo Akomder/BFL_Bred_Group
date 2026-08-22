@@ -42,10 +42,14 @@ export const createApp = () => {
       message: { error: 'Too many requests' },
     })
 
-  // Forms carry a PDF plus two images; 12 MB leaves generous headroom.
+  /* One file: the PDF. The photo and signature fields are gone — nothing ever
+     read them, and they are already embedded in the PDF (see web/src/lib/submit.ts).
+     The ceilings are deliberately tight rather than generous: a submission has
+     to fit inside the platform's 4.5 MB request limit, and the payload field
+     is a form, not a file — the UI caps its longest input at 500 characters. */
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 12 * 1024 * 1024, files: 3, fields: 10, fieldSize: 256 * 1024 },
+    limits: { fileSize: 4 * 1024 * 1024, files: 1, fields: 1, fieldSize: 64 * 1024 },
   })
 
   /* Express resolves this against the `trust proxy` setting above, so it is
@@ -93,11 +97,7 @@ export const createApp = () => {
     '/api/submissions',
     limit(config.rateLimit.submissions),
     requireDeviceKey,
-    upload.fields([
-      { name: 'pdf', maxCount: 1 },
-      { name: 'photo', maxCount: 1 },
-      { name: 'signature', maxCount: 1 },
-    ]),
+    upload.single('pdf'),
     async (req, res) => {
       try {
         let payload
@@ -110,7 +110,7 @@ export const createApp = () => {
           return res.status(400).json({ error: 'Malformed payload' })
         }
 
-        const file = req.files?.pdf?.[0]
+        const file = req.file
         if (!file) return res.status(400).json({ error: 'Missing pdf' })
 
         /* The reference becomes a spool directory name, so it has to be a
