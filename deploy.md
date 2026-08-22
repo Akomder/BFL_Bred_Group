@@ -15,21 +15,54 @@ given a public hostname until every item in it is closed.
 
 | Component | What it is | Where it runs |
 |---|---|---|
-| `server/` | Express submission service — receives the form, sends mail, archives the PDF to Drive, appends the ledger row | Node 22 under systemd, bound to `127.0.0.1:8787` |
-| `web/dist` | The tablet UI — React + Vite static build | Served directly from disk by nginx |
+| `server/` | Express submission service — receives the form, sends mail, archives the PDF to Drive, appends the ledger row | Vercel function (`api/index.js`), Node 22 |
+| `web/dist` | The tablet UI — React + Vite static build | Vercel static output, same project and same origin |
 
 Three external dependencies: an **SMTP relay** (required), **Google Drive** (required — the
-service refuses to boot without it), **Google Sheets** (optional ledger).
+service refuses to build without it), **Google Sheets** (optional ledger). Plus a **Vercel Blob
+store**, which is where the spool lives.
 
 ### Decisions taken
 
 | Decision | Choice | Why |
 |---|---|---|
-| Hosting | **Single VPS + nginx** | The "a submitted form is never lost" guarantee depends on a durable on-disk spool (`server/src/spool.js`) and on the boot-time credential check in `server/src/preflight.js`. Both need a persistent process. |
-| Vercel | **Demo only — decommissioned in §11-D** | Its entry point (`server/api/index.js`) deliberately skips `assertReady()`, and its filesystem is ephemeral, so a spooled form is silently destroyed when the container recycles. Unacceptable for a financial record. |
+| Hosting | **Vercel — one project, both halves** | *Reversed 2026-08-23 (see below).* Static output and the function share an origin, so §3.4's one-origin argument still holds without nginx. |
+| Vercel | **The production target** | Superseded the VPS decision on 2026-08-23. The two objections below were conditions, not blockers, and both are now closed in code. |
 | Domain | **`forms.bfl.la`** | App and API share one origin, so there is no cross-origin configuration to get wrong. |
 | Google identity | **Service account + Shared Drive** | Production access must belong to the bank, not to one employee's Google session. Requires the code change in §4.0. |
-| API access control | **Four layers** — source-IP allowlist · device key header · separate admin token for ops routes · rate limiting and header hardening | See §1-S1 and §9. |
+| API access control | **Four layers** — source-IP allowlist · device key header · separate admin token for ops routes · rate limiting and header hardening | See §1-S1 and §9. The allowlist moved from nginx to `middleware.js`. |
+| Spool durability | **Vercel Blob** (`SPOOL_DRIVER=blob`) | See below. |
+| Boot preflight | **Deploy-time, in the build command** | See below. |
+
+#### The 2026-08-23 reversal — what changed and what did not
+
+This document previously recorded Vercel as demo-only, to be decommissioned, on two grounds.
+Both were real. Both are now addressed, and neither is addressed by ignoring it:
+
+- **"Its filesystem is ephemeral, so a spooled form is silently destroyed when the container
+  recycles."** Still true of the filesystem. `server/src/spool.js` is now a driver facade:
+  `spool/fs.js` is unchanged and remains the default, and `spool/blob.js` puts the PDF and its
+  manifest in Vercel Blob, which outlives the invocation. `SPOOL_DRIVER=blob` selects it, and
+  the service refuses to start with that set and no `BLOB_READ_WRITE_TOKEN`.
+- **"Its entry point deliberately skips `assertReady()`."** Still true, and still unavoidable —
+  a serverless invocation has no boot to refuse. The check moved to the two moments that do
+  exist: `npm run preflight` runs inside the Vercel build command, so credentials Drive or SMTP
+  reject fail the deploy rather than going live; and `auth.js` fails closed at request time.
+
+**What is genuinely weaker than the VPS design, and stays weaker:**
+
+1. A credential accepted at build time and revoked afterwards is not caught automatically.
+   Monitor `/api/health/detail`; a successful deploy is not a standing guarantee.
+2. Blob storage has no atomic `rename()`, so `flushSpool` copies then deletes. A crash between
+   the two leaves a form in both `spool/` and `sent/` — duplicated, never lost. The direction is
+   deliberate.
+3. The in-process rate limiter counts per instance, so a scaled-out deployment's real ceiling is
+   higher than configured (§9.2's edge limits were nginx's job — use Vercel Firewall rules).
+4. Spooled manifests hold complete customer payloads, so §12's retention purge needs a
+   Vercel-side equivalent over the `sent/` prefix.
+
+The VPS path is not deleted and not broken: `server/src/index.js`, `assertReady()` and the fs
+spool driver all still work, and §2 and §7-§9 below remain accurate for that deployment.
 
 ### Rules for this document
 
@@ -259,9 +292,11 @@ Three things are already correct in ways that are easy to undo by accident:
 - **`server/src/mail/messages.js:12-17` escapes `& < > "` for the HTML mail.** Values are only
   ever placed in text nodes, which makes that set sufficient. If anyone moves an interpolation
   into an HTML *attribute*, `'` must be escaped too.
-- **`server/src/preflight.js` refuses to boot on rejected credentials.** This is exactly why
-  the VPS entry point (`server/src/index.js`) is the right one, and why Vercel's
-  (`server/api/index.js`, which skips it by design) is being deleted.
+- **`server/src/preflight.js` refuses to boot on rejected credentials.** Keep that behaviour in
+  `server/src/index.js`. The serverless entry point (`api/index.js`) cannot use it — there is no
+  boot to refuse — so it runs as `npm run preflight` inside the Vercel build command instead.
+  Do not "simplify" that out of `vercel.json`: without it nothing checks the credentials before
+  a deployment goes live.
 
 ---
 
@@ -640,16 +675,62 @@ outright.
 
 ### 7.1 Install and build
 
-```bash
-cd /opt/bfl-cash-form/server && sudo -u bflapp npm ci --omit=dev
-```
+**On Vercel** this is the build command in `vercel.json` and runs automatically:
+`npm ci` at the root, then `npm run vercel-build` (preflight, then the web build).
+
+**On the VPS**, the two halves are npm workspaces of one root package, so they install together
+from the root rather than separately:
 
 ```bash
-cd /opt/bfl-cash-form/web && sudo -u bflapp npm ci && sudo -u bflapp npm run build
+cd /opt/bfl-cash-form && sudo -u bflapp npm ci && sudo -u bflapp npm run build --workspace web
 ```
 
-`npm ci` installs strictly from the committed lockfile. The web build outputs to
-`/opt/bfl-cash-form/web/dist`, which is exactly what nginx serves (§8).
+`npm ci` installs strictly from the committed lockfile — the **root** `package-lock.json`, which
+is now the only one. `server/package-lock.json` and `web/package-lock.json` were deleted rather
+than left in place: npm resolves a workspace member against the root lockfile and ignores a
+nested one entirely, so those files would have sat there looking authoritative while describing a
+dependency tree nothing installs. Running `npm ci` from inside `server/` or `web/` still works,
+but it quietly acts on the whole workspace from the root — prefer the root command above, and
+note that `--omit=dev` there would strip `web/`'s build tooling too.
+
+The web build still outputs to `/opt/bfl-cash-form/web/dist`, which is exactly what nginx serves
+(§8).
+
+### 7.1b Vercel project — the steps that are not in the repository
+
+`vercel.json`, `api/index.js` and `middleware.js` are committed, so everything below is
+account-side setup. Do them in this order; the last step is the only irreversible one.
+
+1. **Delete the two old demo projects first** — §11-D. They are a live, unauthenticated
+   exposure and deleting them is not made less urgent by this deployment.
+2. `npx vercel login`, then `npx vercel link` from the repository root. Create a **new**
+   project; do not reattach to `bfl-cash-form-api` or `bfl-cash-form-web`.
+3. **Project Settings → Node.js Version → 22.x or newer.** The root `package.json` declares
+   `engines.node: ">=22"`, but Vercel takes the major from this setting.
+4. **Storage → connect a Blob store** to the project. `BLOB_READ_WRITE_TOKEN` is then injected
+   automatically; the build fails without it whenever `SPOOL_DRIVER=blob`.
+5. **Environment variables** — everything from §6.2, plus the four in the table below. Scope
+   the SMTP and Google values to **Production _and_ Build**: the build-time preflight cannot
+   verify credentials it cannot read, and it is the only thing standing between a rejected
+   credential and a live deployment.
+
+   | Variable | Value | Consequence of getting it wrong |
+   |---|---|---|
+   | `TRUST_PROXY` | `1` | At `0`, every audit mail, ledger row and PDF records Vercel's proxy instead of the tablet, and per-IP rate limiting becomes one shared bucket |
+   | `SPOOL_DRIVER` | `blob` | At `fs`, an undeliverable form is written to a filesystem that is discarded when the container recycles — silently, with the customer already gone |
+   | `ALLOWED_CIDRS` | branch + VPN egress | Unset denies all `/api/`; set too wide, and the device key inlined in the public bundle is the only thing left (§9.1) |
+   | `ADMIN_CIDRS` | IT administration range | Guards `/api/spool*`, which lists real customers' queued submissions |
+
+   `VITE_API_BASE` and `VITE_API_KEY` are build-time only and end up inside the bundle. Set
+   `VITE_API_BASE` and `ALLOWED_ORIGINS` to the same production URL — §3.4's one origin.
+
+6. **Rotate before you paste.** §6.5 applies unchanged: the values currently in `server/.env`
+   were exposed through OneDrive version history and the earlier public demo deployment. Rotate
+   the SMTP password and the Google credentials rather than reusing them.
+7. `npx vercel --prod`. Watch the build log for the `preflight OK` block — a `FATAL:` block
+   there means the deploy correctly refused, and §7.3's guidance applies.
+
+Then §10 in full. The Vercel-specific checks are collected in Appendix D.
 
 ### 7.2 systemd unit
 
@@ -718,8 +799,9 @@ sheets  -> ok
 ```
 
 A `FATAL:` block instead means the service **correctly refused to start** on bad
-configuration (`server/src/preflight.js` — this is the behaviour Vercel's entry point
-skipped). Fix what the message names and restart; do not work around it.
+configuration (`server/src/preflight.js`). Fix what the message names and restart; do not work
+around it. On Vercel the same block appears in the **build log** rather than at boot, and fails
+the deploy — see §0 and `server/scripts/preflight-cli.mjs`.
 
 ---
 
@@ -903,7 +985,10 @@ Rotate first (§6.5), then delete:
 - [ ] `server/.env.local` and `server/.env.demo`
 - [ ] `web/.env.local` — holds `VITE_API_BASE` **and** a `VERCEL_OIDC_TOKEN`
 - [ ] `.env.local` at the repo root — holds a `VERCEL_OIDC_TOKEN`
-- [ ] `.vercel/` and `web/.vercel/` — project and organisation IDs for the two demo projects
+- [ ] `.vercel/` and `web/.vercel/` — project and organisation IDs for the two **demo** projects.
+      Delete these before linking the new project, so `vercel link` cannot silently reattach to a
+      decommissioned one. (`.vercel/` is gitignored and holds no secret, but the OIDC tokens
+      above are separate and must still be revoked.)
 - [ ] `web/dist/` — a stale build carrying the old `VITE_API_BASE`; production rebuilds on
       the server (§7.1)
 - [ ] The service-account JSON key downloaded in §4.5 (check `~/Downloads`)
@@ -934,15 +1019,15 @@ history are placeholders in `prod_setup.md` (`SMTP_PASS=<from §5>`). Because of
 history rewrite is needed** — but if a real secret is ever committed in future, rotating it
 comes first and rewriting history second, never the reverse.
 
-### B · Repository — remove the Vercel path and the superseded docs
+### B · Repository — the superseded docs
 
-Vercel is not the production target, so these files should not exist to be picked up by
-mistake:
+**Superseded 2026-08-23 for the first two items.** Vercel is now the production target (§0), so
+`api/index.js` and `vercel.json` are live deployment configuration and must **not** be deleted.
+The concern that motivated deleting them — an entry point that boots with rejected credentials —
+is instead closed by the build-time preflight; see §0 and `server/scripts/preflight-cli.mjs`.
 
-- [ ] **`server/api/index.js`** — the Vercel entry point that deliberately skips
-      `assertReady()`. It is the one code path that will happily boot with rejected
-      credentials. Delete it.
-- [ ] **`server/vercel.json`** — the rewrite rule that only makes sense on Vercel.
+Still to remove:
+
 - [ ] **`server/scripts/google-oauth-setup.mjs`** — exists solely to mint the personal OAuth
       refresh token and to write it into `server/.env`. Obsolete once §4's service account is
       live, and it is a tool whose whole job is writing a secret to disk. Delete it, and drop
@@ -981,7 +1066,7 @@ sudo ls -la /opt/bfl-cash-form/server/.env /etc/bfl-cash-form/server.env /var/li
 
 ### D · External services — the old attack surface stays live until these are done
 
-- [ ] **Vercel — delete both projects.** `bfl-cash-form-api` (`prj_J8Zx…`) and
+- [ ] **Vercel — delete the two old demo projects.** `bfl-cash-form-api` (`prj_J8Zx…`) and
       `bfl-cash-form-web` (`prj_Qtb3…`), organisation `team_2nqcHzjL…`. Remove every
       environment variable first, then delete the projects, then revoke the OIDC tokens.
 
@@ -990,6 +1075,12 @@ sudo ls -la /opt/bfl-cash-form/server/.env /etc/bfl-cash-form/server.env /var/li
       exploitable there today, against the real mailbox and the real Drive. This is the single
       highest-priority item in this document — it can be done immediately, before any of the
       rest.
+
+      **This is unchanged by the 2026-08-23 move to Vercel.** Those two projects predate every
+      fix in §1: they have no authentication, no allowlist, no durable spool and no build-time
+      preflight. The new single project replaces both and does not inherit anything from them.
+      Delete them *before* deploying the new one, not after — they are a live exposure, and
+      having a supported deployment next door does not make them less so.
 - [ ] **Google — revoke the personal OAuth grant** at
       [myaccount.google.com/permissions](https://myaccount.google.com/permissions), and delete
       the Desktop OAuth client from Cloud Console. §4's service account replaces it entirely.
@@ -1214,10 +1305,21 @@ Do not open the service to branch tablets until every line is ticked.
 - [ ] Camera works on a real tablet over HTTPS
 - [ ] SSL Labs grade A or better
 
+**Vercel-specific (§0)** — none of these have a VPS equivalent, so none are covered above:
+
+- [ ] `TRUST_PROXY=1` — a forged `X-Forwarded-For` does **not** reach the audit mail or ledger
+- [ ] `SPOOL_DRIVER=blob` and a Blob store connected — force a mail failure, redeploy, and
+      confirm the spooled form is **still** listed by `GET /api/spool` afterwards
+- [ ] `ALLOWED_CIDRS` and `ADMIN_CIDRS` set — `/api/` from an outside address returns `403`
+- [ ] A deploy with a deliberately wrong `SMTP_PASS` **fails the build**
+- [ ] A real submission fits inside the 4.5 MB request limit
+
 **Cleanup (§11)**
 
 - [ ] A — developer machine wiped, OneDrive recycle bin and version history purged
-- [ ] B — Vercel entry point, `vercel.json`, OAuth setup script and `prod_setup.md` deleted; docs reconciled
+- [ ] B — OAuth setup script and `prod_setup.md` deleted; docs reconciled. (`api/index.js` and
+      `vercel.json` are live configuration as of 2026-08-23 — **do not** delete them)
 - [ ] C — server verified: no stray `.env`, correct permissions, retention scheduled
-- [ ] D — **both Vercel projects deleted**, personal Google OAuth grant revoked, SMTP password rotated
+- [ ] D — **both old demo Vercel projects deleted**, personal Google OAuth grant revoked, SMTP
+      password rotated
 - [ ] E — sign-off recorded with names and dates

@@ -113,6 +113,12 @@ export const config = {
    *  is never lost if mail or the archive is briefly down. Nothing else
    *  writes here: production requires real mail and Drive config. */
   outbox: process.env.OUTBOX_DIR ?? 'outbox',
+
+  /** Which spool driver backs that promise: 'fs' (default) for any host with
+   *  a persistent disk, 'blob' for the serverless deployment, whose
+   *  filesystem does not survive the invocation that wrote to it. Defaulting
+   *  to 'fs' keeps the VPS and local behaviour unchanged. */
+  spoolDriver: (process.env.SPOOL_DRIVER ?? 'fs').trim().toLowerCase(),
 }
 
 /** Only the host is required: internal relays and direct-to-MX delivery accept
@@ -173,6 +179,20 @@ export const configProblems = () => {
       'Google Drive archive not configured. Set GOOGLE_OAUTH_CLIENT_ID and ' +
         'GOOGLE_OAUTH_CLIENT_SECRET, run `npm run google:auth` to get GOOGLE_OAUTH_REFRESH_TOKEN, ' +
         'and set GOOGLE_DRIVE_FOLDER_ID. See server/.env.example.',
+    )
+  }
+
+  if (!['fs', 'blob'].includes(config.spoolDriver)) {
+    problems.push(`SPOOL_DRIVER is "${config.spoolDriver}" — it must be "fs" or "blob". See server/src/spool.js.`)
+  }
+
+  /* The blob driver's whole reason for existing is that the deployment has no
+     durable disk, so an unusable token there is not a degraded spool — it is
+     no spool at all, on the one deployment that cannot fall back to one. */
+  if (config.spoolDriver === 'blob' && !process.env.BLOB_READ_WRITE_TOKEN) {
+    problems.push(
+      'SPOOL_DRIVER=blob but BLOB_READ_WRITE_TOKEN is not set. Create a Blob store on the ' +
+        'Vercel project and connect it — undeliverable forms have nowhere durable to go without it.',
     )
   }
 

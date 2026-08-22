@@ -18,12 +18,18 @@ without working mail and Google Drive credentials (see [Configuring for
 production](#configuring-for-production)); the app refuses to submit without a service to
 submit to.
 
+The two halves are npm workspaces of one root package, so dependencies are installed once
+from the repository root and the root lockfile is the only one.
+
 ```bash
+# once, from the repository root — installs both workspaces
+npm install
+
 # 1. the submission service — needs server/.env filled in first, see below
-cd server && npm install && npm start       # http://localhost:8787
+npm start --workspace server                # http://localhost:8787
 
 # 2. the app — needs web/.env.local (or .env.production) pointing at it, see below
-cd web && npm install && npm run dev        # http://localhost:5173
+npm run dev --workspace web                 # http://localhost:5173
 ```
 
 Copy `web/.env.example` to `web/.env.local`:
@@ -45,9 +51,14 @@ credential, not a per-user secret. See [Security](#security).
 > or the photo step will report that the camera is unavailable (the flow continues without a photo).
 
 ```bash
-cd web && npm test        # unit tests: formatting, masks, amount-in-words
-cd web && npm run build   # production build
+npm test                            # the server suite (see the note below)
+npm run build --workspace web       # production build, into web/dist
 ```
+
+> `web/` currently has **no test files** — the suite README once described here was deleted and
+> `deploy.md` §1-S10 tracks restoring it. `npm test` at the root runs the server suite only,
+> rather than failing on a suite that does not exist. Do not read a green `npm test` as the web
+> side being covered.
 
 ## The flow
 
@@ -278,6 +289,38 @@ as nginx, set the real hop count — otherwise you record the proxy's address.
   an edge/WAF limit if the deployment is public.
 - Run `npm test` in `server/` after touching validation — `src/security.test.js` is written as
   the attacks, so a regression fails the suite rather than production.
+
+## Deployment
+
+Production is a **single Vercel project** serving both halves from one origin: `web/dist` as
+static output, and the Express app as one function at `/api/*` (`api/index.js`). One origin
+means no CORS to get wrong — `ALLOWED_ORIGINS`, `VITE_API_BASE` and the deployment URL are all
+the same value.
+
+`deploy.md` is the runbook and is the authority; §0 records why Vercel, and what is weaker
+because of it. Three things about it differ from running on a normal server, and all three are
+easy to get wrong silently:
+
+- **`TRUST_PROXY=1` is mandatory.** The function always sits behind Vercel's proxy. Left at `0`,
+  the IP written onto every audit mail, ledger row and PDF is that proxy rather than the tablet,
+  and per-IP rate limiting collapses into a single shared bucket.
+- **`SPOOL_DRIVER=blob` is mandatory.** The filesystem is read-only apart from `/tmp`, and `/tmp`
+  dies with the container — so the fs spool would quietly destroy forms a customer had already
+  submitted. The blob driver needs a Vercel Blob store connected to the project.
+- **`ALLOWED_CIDRS` / `ADMIN_CIDRS` are mandatory.** `middleware.js` enforces the source-IP
+  allowlist that nginx used to hold. `VITE_API_KEY` is inlined into the public bundle by design,
+  so without the allowlist anyone who can load the app can read the key and call the API.
+
+All three fail closed rather than degrading: the build refuses without a Blob token, and the
+middleware denies with an unset allowlist.
+
+The build command runs `npm run preflight` before building, so a deploy whose SMTP or Drive
+credentials are rejected **fails rather than going live** — the serverless stand-in for the
+boot check in `server/src/preflight.js`. It verifies at deploy time only; watch
+`/api/health/detail` for credentials that expire later.
+
+The VPS + nginx path (`server/src/index.js`, `SPOOL_DRIVER=fs`) still works and is still
+documented in `deploy.md` §2 and §7-§9.
 
 ## Notes for whoever picks this up
 

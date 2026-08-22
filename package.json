@@ -1,0 +1,20 @@
+{
+  "name": "bfl-cash-form",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BFL cash deposit/withdrawal form \u2014 tablet UI and submission service, deployed as one Vercel project.",
+  "type": "module",
+  "workspaces": [
+    "web",
+    "server"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace web",
+    "preflight": "node --env-file-if-exists=server/.env server/scripts/preflight-cli.mjs",
+    "vercel-build": "npm run preflight && npm run build --workspace web",
+    "test": "npm test --workspace server"
+  },
+  "engines": {
+    "node": "22.x"
+  }
+}

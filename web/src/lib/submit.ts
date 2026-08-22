@@ -81,9 +81,11 @@ export const submitForm = async ({ data, meta, copyToEmail }: SubmitOptions): Pr
       copyToEmail: copyToEmail ?? null,
     }),
   )
+  /* The PDF only. The face photo and the signature are already drawn into it,
+     so uploading them alongside sent a photograph of the customer and their
+     handwritten signature across the network a second time, for nothing to
+     read them — the service never looked at either field. */
   body.append('pdf', pdf, fileName)
-  if (data.photo) body.append('photo', await (await fetch(data.photo)).blob(), 'photo.jpg')
-  if (data.signature) body.append('signature', await (await fetch(data.signature)).blob(), 'signature.png')
 
   const res = await fetch(`${API_BASE}/api/submissions`, {
     method: 'POST',
