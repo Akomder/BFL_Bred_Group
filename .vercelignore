@@ -1,0 +1,36 @@
+# What never gets uploaded to a build.
+#
+# Without this file Vercel falls back to .gitignore. That fallback happens to
+# be correct today, but it is a behaviour rather than a guarantee, and the
+# thing it is protecting is server/.env — live SMTP, Google and Graph
+# credentials. deploy.md §6.5 records that those exact values were uploaded
+# to Vercel's environment store once already. Once is enough.
+#
+# NOTE: the presence of this file REPLACES the .gitignore fallback entirely,
+# so anything that must stay out of a build has to be listed here too.
+
+# Secrets — the reason this file exists.
+.env
+.env.*
+**/.env
+**/.env.*
+!.env.example
+!**/.env.example
+
+# Rebuilt on the build machine; uploading them is slow and can shadow the
+# lockfile's resolution.
+node_modules
+**/node_modules
+web/dist
+
+# Repository and tooling internals.
+.git
+.claude
+.vercel
+*.log
+.DS_Store
+
+# Docs — deploy.md is an operational runbook naming internal hosts and
+# network ranges. It has no business in a deployment bundle.
+*.md
+!README.md
