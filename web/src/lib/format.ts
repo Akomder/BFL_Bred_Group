@@ -1,4 +1,4 @@
-import { CURRENCY_INFO, type CurrencyCode } from './types'
+import { getCurrencyInfo } from './types'
 
 /** Block sizes of a BFL account number: 3-7-2-4-2, 18 digits in total. */
 export const ACCOUNT_MASK = [3, 7, 2, 4, 2]
@@ -32,8 +32,8 @@ export const isAccountNumberComplete = (raw: string): boolean =>
  * Works on partial input, so it can run on every keystroke: "2000000" ->
  * "2,000,000" and "1234.5" -> "1,234.5".
  */
-export const formatAmount = (raw: string, currency: CurrencyCode): string => {
-  const { decimals } = CURRENCY_INFO[currency]
+export const formatAmount = (raw: string, currency: string): string => {
+  const { decimals } = getCurrencyInfo(currency)
   const cleaned = sanitizeAmount(raw, currency)
   if (cleaned === '') return ''
   const [int, dec] = cleaned.split('.')
@@ -46,8 +46,8 @@ export const formatAmount = (raw: string, currency: CurrencyCode): string => {
  * Strips everything that is not a digit or a single decimal point, drops the
  * decimal part entirely for zero-decimal currencies, and trims extra decimals.
  */
-export const sanitizeAmount = (raw: string, currency: CurrencyCode): string => {
-  const { decimals } = CURRENCY_INFO[currency]
+export const sanitizeAmount = (raw: string, currency: string): string => {
+  const { decimals } = getCurrencyInfo(currency)
   let cleaned = raw.replace(/[^\d.]/g, '')
   const firstDot = cleaned.indexOf('.')
   if (firstDot >= 0) {
@@ -65,8 +65,8 @@ export const parseAmount = (raw: string): number => {
 }
 
 /** Amount with grouping and the currency's fixed decimals, for review and PDF. */
-export const formatAmountForDisplay = (raw: string, currency: CurrencyCode): string => {
-  const { decimals } = CURRENCY_INFO[currency]
+export const formatAmountForDisplay = (raw: string, currency: string): string => {
+  const { decimals } = getCurrencyInfo(currency)
   const value = parseAmount(raw)
   return value.toLocaleString('en-US', {
     minimumFractionDigits: decimals,

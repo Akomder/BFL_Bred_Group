@@ -5,7 +5,8 @@ export type CurrencyCode = 'LAK' | 'USD' | 'THB' | 'EUR'
 export const CURRENCIES: CurrencyCode[] = ['LAK', 'USD', 'THB', 'EUR']
 
 export interface CurrencyInfo {
-  code: CurrencyCode
+  /** The known enum code, or an arbitrary customer-typed string via "Other". */
+  code: string
   /** Digits after the decimal separator used for input, display and the PDF. */
   decimals: number
   /** Major unit, e.g. "Lao Kip". */
@@ -27,15 +28,32 @@ export const CURRENCY_INFO: Record<CurrencyCode, CurrencyInfo> = {
   EUR: { code: 'EUR', decimals: 2, majorEn: 'Euro', minorEn: 'Cent', majorLo: 'ເອີໂຣ', minorLo: 'ເຊັນ' },
 }
 
+/**
+ * Looks up a currency's display info, falling back to treating an unrecognized
+ * (customer-typed, via the "Other" option) code as a whole-unit currency with
+ * no minor unit — same mechanism LAK's `decimals: 0` already relies on, so the
+ * minor-unit branch in amountInWords simply never fires for it.
+ */
+export const getCurrencyInfo = (code: string): CurrencyInfo =>
+  CURRENCY_INFO[code as CurrencyCode] ?? {
+    code,
+    decimals: 0,
+    majorEn: code,
+    minorEn: '',
+    majorLo: code,
+    minorLo: '',
+  }
+
 export interface FormData {
   kind: TxKind
   accountName: string
   /** Digits only; the 3-7-2-4-2 grouping is presentation. */
   accountNumber: string
-  accountCurrency: CurrencyCode
+  /** A known CurrencyCode, or an arbitrary customer-typed value via "Other". */
+  accountCurrency: string
   /** Raw numeric string as typed, without grouping separators. */
   amount: string
-  amountCurrency: CurrencyCode
+  amountCurrency: string
   /** "Source of funds" on a deposit, "Purpose of withdrawal" on a withdrawal. */
   sourceOfFunds: string
   processedByPhone: string

@@ -1,4 +1,4 @@
-import { CURRENCY_INFO, type CurrencyCode } from './types'
+import { getCurrencyInfo } from './types'
 import { parseAmount } from './format'
 
 /* ------------------------------------------------------------------ English */
@@ -101,8 +101,8 @@ const splitMinor = (value: number, decimals: number): [number, number] => {
  * "Two thousand Lao Kip only" — the wording that appears on the review screen
  * and, alongside the figures, on the PDF.
  */
-export const amountInWordsEn = (raw: string | number, currency: CurrencyCode): string => {
-  const info = CURRENCY_INFO[currency]
+export const amountInWordsEn = (raw: string | number, currency: string): string => {
+  const info = getCurrencyInfo(currency)
   const value = typeof raw === 'number' ? raw : parseAmount(raw)
   const [major, minor] = splitMinor(value, info.decimals)
   const parts = [`${numberToWordsEn(major)} ${pluralEn(info.majorEn, major)}`]
@@ -111,8 +111,8 @@ export const amountInWordsEn = (raw: string | number, currency: CurrencyCode): s
 }
 
 /** Lao equivalent, e.g. "ສອງພັນກີບຖ້ວນ". */
-export const amountInWordsLo = (raw: string | number, currency: CurrencyCode): string => {
-  const info = CURRENCY_INFO[currency]
+export const amountInWordsLo = (raw: string | number, currency: string): string => {
+  const info = getCurrencyInfo(currency)
   const value = typeof raw === 'number' ? raw : parseAmount(raw)
   const [major, minor] = splitMinor(value, info.decimals)
   let out = `${numberToWordsLo(major)}${info.majorLo}`

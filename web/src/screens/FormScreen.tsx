@@ -6,10 +6,29 @@ import { Button, Card, Chevron, ErrorText, FieldLabel, inputClass, selectClass }
 import { formatAmount, isAccountNumberComplete, parseAmount, sanitizeAmount } from '../lib/format'
 import { CURRENCIES, SOURCE_MAX_LENGTH, type CurrencyCode } from '../lib/types'
 
+const OTHER_CURRENCY = 'OTHER'
+const CUSTOM_CURRENCY_MAX_LENGTH = 6
+
+/** Whether the stored currency value isn't one of the known codes — i.e. the
+ *  customer typed a custom one via "Other". Derived from the value itself
+ *  rather than tracked as separate UI state, so it can't get out of sync. */
+const isCustomCurrency = (value: string): boolean =>
+  !CURRENCIES.includes(value as CurrencyCode)
+
+/** A custom currency is a code, not free text — letters only (no digits or
+ *  symbols), uppercased as typed, capped to a short length. */
+const sanitizeCurrencyCode = (value: string): string =>
+  value
+    .replace(/[^a-zA-Z]/g, '')
+    .toUpperCase()
+    .slice(0, CUSTOM_CURRENCY_MAX_LENGTH)
+
 type ErrorKey =
   | 'accountName'
   | 'accountNumber'
+  | 'accountCurrency'
   | 'amount'
+  | 'amountCurrency'
   | 'sourceOfFunds'
   | 'processedByPhone'
   | 'confirmed'
@@ -26,7 +45,9 @@ export const FormScreen = () => {
   const found: Errors = {}
   if (!data.accountName.trim()) found.accountName = t('required')
   if (!isAccountNumberComplete(data.accountNumber)) found.accountNumber = t('accountIncomplete')
+  if (!data.accountCurrency.trim()) found.accountCurrency = t('required')
   if (parseAmount(data.amount) <= 0) found.amount = t('amountRequired')
+  if (!data.amountCurrency.trim()) found.amountCurrency = t('required')
   if (!data.sourceOfFunds.trim()) found.sourceOfFunds = t('required')
   if (!data.processedByPhone.trim()) found.processedByPhone = t('required')
   if (!data.confirmed) found.confirmed = t('consentRequired')
@@ -48,8 +69,19 @@ export const FormScreen = () => {
   }
 
   /** Changing the account currency re-points the amount currency with it,
-   *  until the customer overrides the amount currency themselves. */
-  const changeAccountCurrency = (code: CurrencyCode) => {
+   *  until the customer overrides the amount currency themselves. Picking
+   *  "Other" in the select starts the custom value blank — the textbox that
+   *  appears (customAccountCurrency below) is what actually sets it. */
+  const changeAccountCurrency = (selected: string) => {
+    const code = selected === OTHER_CURRENCY ? '' : selected
+    const followed = data.amountCurrency === data.accountCurrency
+    patch({
+      accountCurrency: code,
+      ...(followed ? { amountCurrency: code, amount: sanitizeAmount(data.amount, code) } : {}),
+    })
+  }
+
+  const customAccountCurrency = (code: string) => {
     const followed = data.amountCurrency === data.accountCurrency
     patch({
       accountCurrency: code,
@@ -80,37 +112,53 @@ export const FormScreen = () => {
             <ErrorText>{errors.accountName}</ErrorText>
           </div>
 
-          <div>
-            <FieldLabel htmlFor="accountNumber" required>
-              {t('accountNumber')}
-            </FieldLabel>
-            <div aria-invalid={Boolean(errors.accountNumber)}>
-              <AccountNumberInput
-                id="accountNumber"
-                value={data.accountNumber}
-                onChange={(accountNumber) => patch({ accountNumber })}
-                invalid={Boolean(errors.accountNumber)}
-              />
+          {/* Account number and its currency share one row, mirroring the amount row below. */}
+          <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
+            <div>
+              <FieldLabel htmlFor="accountNumber" required>
+                {t('accountNumber')}
+              </FieldLabel>
+              <div aria-invalid={Boolean(errors.accountNumber)}>
+                <AccountNumberInput
+                  id="accountNumber"
+                  value={data.accountNumber}
+                  onChange={(accountNumber) => patch({ accountNumber })}
+                  invalid={Boolean(errors.accountNumber)}
+                />
+              </div>
             </div>
-            <ErrorText>{errors.accountNumber}</ErrorText>
-          </div>
-
-          <div className="sm:max-w-[260px]">
-            <FieldLabel htmlFor="accountCurrency">{t('accountCurrency')}</FieldLabel>
-            <div className="relative">
-              <select
-                id="accountCurrency"
-                value={data.accountCurrency}
-                onChange={(e) => changeAccountCurrency(e.target.value as CurrencyCode)}
-                className={selectClass()}
-              >
-                {CURRENCIES.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-              <Chevron />
+            <div>
+              <FieldLabel htmlFor="accountCurrency">{t('accountCurrency')}</FieldLabel>
+              <div className="relative">
+                <select
+                  id="accountCurrency"
+                  value={isCustomCurrency(data.accountCurrency) ? OTHER_CURRENCY : data.accountCurrency}
+                  onChange={(e) => changeAccountCurrency(e.target.value)}
+                  className={selectClass()}
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                  <option value={OTHER_CURRENCY}>{t('otherCurrency')}</option>
+                </select>
+                <Chevron />
+              </div>
+              {isCustomCurrency(data.accountCurrency) && (
+                <input
+                  value={data.accountCurrency}
+                  onChange={(e) => customAccountCurrency(sanitizeCurrencyCode(e.target.value))}
+                  placeholder={t('otherCurrencyPlaceholder')}
+                  autoComplete="off"
+                  aria-invalid={Boolean(errors.accountCurrency)}
+                  className={`${inputClass(Boolean(errors.accountCurrency))} mt-2`}
+                />
+              )}
+            </div>
+            <div className="sm:col-span-2 -mt-1 grid gap-1 sm:grid-cols-[1fr_160px]">
+              <ErrorText>{errors.accountNumber}</ErrorText>
+              <ErrorText>{errors.accountCurrency}</ErrorText>
             </div>
           </div>
 
@@ -135,9 +183,9 @@ export const FormScreen = () => {
               <div className="relative">
                 <select
                   id="amountCurrency"
-                  value={data.amountCurrency}
+                  value={isCustomCurrency(data.amountCurrency) ? OTHER_CURRENCY : data.amountCurrency}
                   onChange={(e) => {
-                    const code = e.target.value as CurrencyCode
+                    const code = e.target.value === OTHER_CURRENCY ? '' : e.target.value
                     patch({ amountCurrency: code, amount: sanitizeAmount(data.amount, code) })
                   }}
                   className={selectClass()}
@@ -147,9 +195,24 @@ export const FormScreen = () => {
                       {c}
                     </option>
                   ))}
+                  <option value={OTHER_CURRENCY}>{t('otherCurrency')}</option>
                 </select>
                 <Chevron />
               </div>
+              {isCustomCurrency(data.amountCurrency) && (
+                <input
+                  value={data.amountCurrency}
+                  onChange={(e) => {
+                    const code = sanitizeCurrencyCode(e.target.value)
+                    patch({ amountCurrency: code, amount: sanitizeAmount(data.amount, code) })
+                  }}
+                  placeholder={t('otherCurrencyPlaceholder')}
+                  autoComplete="off"
+                  aria-invalid={Boolean(errors.amountCurrency)}
+                  className={`${inputClass(Boolean(errors.amountCurrency))} mt-2`}
+                />
+              )}
+              <ErrorText>{errors.amountCurrency}</ErrorText>
             </div>
             <div className="sm:col-span-2 -mt-1">
               <ErrorText>{errors.amount}</ErrorText>

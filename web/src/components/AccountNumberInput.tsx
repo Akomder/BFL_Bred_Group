@@ -61,7 +61,7 @@ export const AccountNumberInput = ({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    <div className="flex w-full flex-wrap items-center gap-2">
       {ACCOUNT_MASK.map((size, index) => (
         <input
           key={index}
@@ -77,9 +77,10 @@ export const AccountNumberInput = ({
           inputMode="numeric"
           autoComplete="off"
           aria-label={`Account number block ${index + 1} of ${ACCOUNT_MASK.length}`}
-          // Blocks shrink with the viewport so all five stay on one line on a
-          // phone, and sit at a comfortable tablet size from ~430px up.
-          style={{ width: `calc(${size} * clamp(0.6rem, 2.4vw, 1.15rem) + 1.1rem)` }}
+          // Blocks grow to fill the row (same footprint as the amount input
+          // beside it) in proportion to their digit count, off a floor so a
+          // narrow block never gets cramped.
+          style={{ flex: `${size} 1 calc(${size} * clamp(0.6rem, 2.4vw, 1.15rem) + 1.1rem)` }}
           className={`min-w-0 rounded-xl border bg-white px-1 py-3 text-center font-mono text-base tracking-[0.08em]
             text-ink outline-none transition-colors focus:border-brand-500 focus:ring-4 focus:ring-brand-100
             sm:px-2 sm:text-lg sm:tracking-[0.12em]
